@@ -1,0 +1,28 @@
+/**:
+  ros__parameters:
+    # 飞控例程共用的 MAVROS 插件清单基线。
+    #
+    # 本文件只保留 mavros 出厂默认的屏蔽项，不做教学场景裁剪。
+    # 下面这些插件有例程正在用，禁止加进 plugin_denylist：
+    #   vision_pose        -> 02_bench_pose_sim 台架位姿回灌
+    #   local_position     -> OFFBOARD 管理器与 06/08 任务节点位置反馈
+    #   setpoint_position  -> OFFBOARD 管理器位置设定点
+    #   setpoint_velocity  -> OFFBOARD 管理器速度设定点
+    #   sys_status         -> /mavros/state
+    #   command / param    -> 解锁、切模式、参数读写
+    #   imu / altitude / battery / home_position -> 遥测与启动自检
+    #
+    # 某个例程需要单独裁剪时，把清单放到该例程自己的 config/ 下，
+    # 并在它自己的 launch 里传入；不要修改本文件。
+    plugin_denylist:
+      # mavros 出厂默认屏蔽项
+      - image_pub
+      - vibration
+      - distance_sensor
+      - rangefinder
+      - wheel_odometry
+      # 57600 UART 上 timesync 会把 RTT 打到数秒，ParamSet/解锁收不到应答
+      - sys_time
+
+    # plugin_allowlist:
+    #   - 'sys_*'

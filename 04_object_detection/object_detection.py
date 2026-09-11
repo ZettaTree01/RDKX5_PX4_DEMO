@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""目标检测 ROS 节点。文档 3.1。
+
+订阅 ``/camera/image_raw``，交给 ``_common/yolo_detector.py`` 做整条推理链
+（NV12 → BPU → DFL → NMS，跟官方
+``/app/pydev_demo/02_detection_sample/03_ultralytics_yolov8`` 同一套做法），
+结果发到 ``/drone/detection_position``，同时把推理画面画出来。
+
+``--show`` / launch 的 ``show:=`` 默认开着：有显示器就弹窗（框 + 类别/置信度），
+没有就隔一会儿写一张快照（默认 ``/tmp/detection_snapshot.jpg``）。
+模型没起来或推理报错时，仍出原图，叠一行状态字。窗口里按 q / Esc
+只关画面，节点还在跑。
+
+别把像素框中心当成 map 系三维点，更别写死 ``(0,0,2)`` 当目标位姿。
+类别是 COCO 80 类；换模型的话，解码假设也要一起改。
+"""
+import argparse
+import os
+import sys
+import traceback
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import Image
+from geometry_msgs.msg import PoseStamped
+from cv_bridge import CvBridge
+import cv2
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '..', '_common'))
+from frame_output import FrameOutput
+from yolo_detector import YoloDetector
+
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+
+
+class DroneDetectionNode(Node):
+    def __init__(self, show=True, snapshot=None, snapshot_period=5.0,
+                 score_thres=0.25, nms_thres=0.45):
+        super().__init__('drone_detection')
+
+        self.image_sub = self.create_subscription(
+            Image, '/camera/image_raw', self.image_callback,
+            qos_profile_sensor_data)
+
+        self.detection_pub = self.create_publisher(
+            PoseStamped, '/drone/detection_position', 10)
+
+        self.bridge = CvBridge()
+        self.detector = YoloDetector(
+            score_thres=score_thres, nms_thres=nms_thres,
+            log=self.get_logger())
+
+        self.out = FrameOutput(
+            self, show=show, snapshot=snapshot,
+            snapshot_period=snapshot_period,
+            title='detection (q/Esc 退出)',
+            fallback_path='/tmp/detection_snapshot.jpg')
+
+        self.get_logger().info('无人机检测节点已启动')
+
+    def image_callback(self, msg):
+        frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+        if not self.detector.loaded:
+            self._output(frame, [], 'model not loaded (raw frame)')
+            return
+
+        try:
+            detections = self.detector.detect(frame)
+        except Exception:
+            self.get_logger().error(
+                '推理失败:\n' + traceback.format_exc(),
+                throttle_duration_sec=5.0)
+            self._output(frame, [], 'inference failed (see log)')
+            return
+
+        note = None if detections else 'no detections'
+        self._output(frame, detections, note)
+        if detections:
+            self.publish_detection(detections[0])
+
+    def _output(self, frame, detections, note=None):
+        if not self.out.enabled():
+            return
+        vis = frame.copy()
+        for (x1, y1, x2, y2, score, cls_id) in detections:
+            cv2.rectangle(vis, (int(x1), int(y1)), (int(x2), int(y2)),
+                          (0, 255, 0), 2)
+            cv2.putText(vis, f'{self.detector.label(cls_id)} {score:.2f}',
+                        (int(x1), max(12, int(y1) - 6)),
+                        FONT, 0.55, (0, 255, 0), 2)
+        if note:
+            cv2.putText(vis, note, (8, 24), FONT, 0.55, (0, 0, 255), 2)
+        self.out.output(vis)
+
+    def publish_detection(self, detection):
+        # 只发布"检测到目标"这一事件；像素框中心 ≠ map 系三维坐标，
+        # 真实三维位置需配合深度/位姿估计，此处不写死坐标。
+        msg = PoseStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'camera'
+        self.detection_pub.publish(msg)
+
+    def destroy_node(self):
+        self.out.close()
+        super().destroy_node()
+
+
+def main(args=None):
+    parser = argparse.ArgumentParser(description='目标检测 ROS 节点')
+    # 必须显式 default=True：--show/--no-show 共用 dest，argparse 取
+    # 第一个 action 的默认值，store_true 的默认值是 False
+    parser.add_argument('--show', dest='show', action='store_true',
+                        default=True,
+                        help='输出推理画面（默认输出）')
+    parser.add_argument('--no-show', dest='show', action='store_false',
+                        help='关闭推理画面输出')
+    parser.add_argument('--snapshot', default=None,
+                        help='定期把推理画面写到该 JPEG 路径')
+    parser.add_argument('--snapshot-period', type=float, default=5.0,
+                        help='快照间隔秒数，默认 5')
+    parser.add_argument('--score-thres', type=float, default=0.25,
+                        help='置信度阈值（概率域），默认 0.25')
+    parser.add_argument('--nms-thres', type=float, default=0.45,
+                        help='NMS IoU 阈值，默认 0.45')
+    parsed, ros_args = parser.parse_known_args(args)
+    rclpy.init(args=ros_args)
+    node = DroneDetectionNode(parsed.show, parsed.snapshot,
+                              parsed.snapshot_period, parsed.score_thres,
+                              parsed.nms_thres)
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    # 退出清理：launch 关停时会补发 SIGINT；rclpy 信号处理器可能已关闭 context
+    try:
+        node.destroy_node()
+    except KeyboardInterrupt:
+        pass
+    try:
+        if rclpy.ok():
+            rclpy.shutdown()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == '__main__':
+    main()
