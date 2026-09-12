@@ -2,11 +2,7 @@
 
 面向 **多旋翼无人机 + PX4**：例程部署在 RDK X5 机载计算机 `/app/zettatree_demo`，飞行指令经 MAVROS 发给飞控。
 
-来源：`RDK_X5_AI_Tutorial.md`。ROS2 例程用 `run.sh`（会 `source` TogetheROS）。
-
-开发机改完例程源码或 README 后，运行 `python D:\gs-workspace\02\_sync_to_x5.py` 同步到机载 `/app/zettatree_demo`。
-同步脚本会跳过 `_tmp_*`、`_sync_to_x5.py`、`_update_tutorial.py` 与 `__pycache__`。
-教程正文里的嵌入源码可用 `python D:\gs-workspace\02\_update_tutorial.py` 从本目录回写。
+ROS2 例程用 `run.sh`（会 `source` TogetheROS）。
 
 每个例程一个目录，自带 `run.sh` / launch / 配置；被多个例程复用的运行时组件统一放在 `_common/`。
 
