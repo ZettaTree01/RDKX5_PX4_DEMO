@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""08 编队飞行：拉起 MAVROS、台架模拟、OFFBOARD 管理器与编队节点。
+"""11 编队飞行：拉起 MAVROS、台架模拟、OFFBOARD 管理器与编队节点。
 
 每架飞机都跑一套本 launch（各机处于同一 ROS Domain，`drone_id` 各不相同）。
 """
@@ -15,7 +15,7 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 
 DEMO_ROOT = '/app/zettatree_demo'
 COMMON = os.path.join(DEMO_ROOT, '_common')
-SCRIPT_DIR = os.path.join(DEMO_ROOT, '08_formation_flight')
+SCRIPT_DIR = os.path.join(DEMO_ROOT, '11_formation_flight')
 BENCH_DIR = os.path.join(DEMO_ROOT, '02_bench_pose_sim')
 INDOOR_ALT = '0.1'
 

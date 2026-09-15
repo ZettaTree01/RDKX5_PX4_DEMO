@@ -4,3 +4,6 @@ _tmp_*
 *.pyc
 *.log
 .DS_Store
+# EGO 源码/编译树在板端 ego_ws，勿放进例程目录同步
+**/ego-planner-swarm/
+**/ego_ws/

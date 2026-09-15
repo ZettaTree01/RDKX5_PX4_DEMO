@@ -1,26 +1,26 @@
-# 08 编队飞行
+# 11 编队飞行
 
 ## 例程说明
 
-文档 4.3。每架飞机运行一套 MAVROS、OFFBOARD 管理器和编队节点。
+文档 4.6。每架飞机运行一套 MAVROS、OFFBOARD 管理器和编队节点。
 各机交换相对启动位置的位移，不直接共用不同飞控的 local 原点。
 所有飞机需有一致的 ENU 朝向并处于同一 ROS Domain。
 
-室内没 GPS 时 launch **默认带上台架位姿模拟**（`bench:=true`），不然飞控不让解锁。
-解锁跟 05/06/07 一样走 `_common/offboard_manager.py`（强制解锁）：先爬升拉转速，
-没队形指令时悬着保持转速，有位置指令再加速，最高 **300 r/min**。必须拆桨。
+室内无 GPS 时 launch **默认启用台架位姿模拟**（`bench:=true`），否则飞控拒绝解锁。
+解锁与 05/06/07 共用 `_common/offboard_manager.py`（强制解锁）：先爬升拉转速，
+无队形指令时悬停保持转速，有位置指令再加速，最高 **300 r/min**。必须拆桨。
 
-## 跑完这节能确认
+## 本节目标
 
-- 多机要先对齐前提：同一 ROS Domain、ENU 朝向一致、每机 `drone_id` 不撞号。
-- 各飞控的 local 原点对不齐，所以交换的是「相对起飞点的位移」，不是直接混用本地点。
-- 领队 / 僚机怎么排、期望队形怎么设。
+- 确认多机前提：同一 ROS Domain、ENU 朝向一致、各机 `drone_id` 唯一。
+- 理解为何交换「相对起飞点的位移」，而不可直接混用各飞控 local 原点。
+- 掌握领队-僚机拓扑与期望队形的设定方法。
 
 > **每架飞机各跑一条命令（各机处于同一 ROS Domain）；`drone_id` 每机不同，0 为领队。**
 
 ```bash
 # 室内拆桨，每架飞机上执行；领队用 drone_id:=0，其余 1、2…
-bash /app/zettatree_demo/08_formation_flight/run.sh arm:=true drone_id:=0 num_drones:=3
+bash /app/zettatree_demo/11_formation_flight/run.sh arm:=true drone_id:=0 num_drones:=3
 ```
 
 > 必须拆桨。不传 `arm:=true` 电机不会转。单机台架验证可用 `drone_id:=0 num_drones:=1`。
@@ -28,7 +28,7 @@ bash /app/zettatree_demo/08_formation_flight/run.sh arm:=true drone_id:=0 num_dr
 实飞（有位置源，不要台架）：
 
 ```bash
-bash /app/zettatree_demo/08_formation_flight/run.sh \
+bash /app/zettatree_demo/11_formation_flight/run.sh \
   arm:=true bench:=false altitude:=2 drone_id:=0 num_drones:=3
 ```
 
@@ -48,11 +48,7 @@ bash /app/zettatree_demo/08_formation_flight/run.sh \
 
 ## 只调试本节点
 
-MAVROS 与管理器已经由别的终端提供时，可以只跑编队节点：
-
 ```bash
 source /app/zettatree_demo/_common/env.sh
-python3 /app/zettatree_demo/08_formation_flight/formation_flight.py --drone-id 0 --num-drones 3
+python3 /app/zettatree_demo/11_formation_flight/formation_flight.py --drone-id 0 --num-drones 3
 ```
-
-> 管理器脚本是共享组件 `_common/offboard_manager.py`，由本例程的 launch 直接拉起。

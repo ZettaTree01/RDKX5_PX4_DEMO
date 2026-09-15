@@ -19,12 +19,17 @@ import cv2
 
 class FrameOutput:
     def __init__(self, node, show=False, snapshot=None, snapshot_period=5.0,
-                 title='frame (q/Esc 退出)', fallback_path='/tmp/frame.jpg'):
-        """node: rclpy 节点，仅用于打日志。"""
+                 title='frame (q/Esc 退出)', fallback_path='/tmp/frame.jpg',
+                 allow_file_fallback=True):
+        """node: rclpy 节点，仅用于打日志。
+
+        allow_file_fallback=False 时：无 DISPLAY 不写 JPEG，只依赖话题视频流。
+        """
         self.node = node
         self.snapshot_path = snapshot
         self.snapshot_period = max(0.1, float(snapshot_period))
         self.fallback_path = fallback_path
+        self.allow_file_fallback = bool(allow_file_fallback)
         self.last_snapshot = 0.0
         self.window_ok = False
         self.title = title
@@ -37,18 +42,25 @@ class FrameOutput:
                 self._fallback('当前无显示环境（DISPLAY 未设置）')
             else:
                 try:
-                    cv2.namedWindow(title, cv2.WINDOW_AUTOSIZE)
+                    cv2.namedWindow(title, cv2.WINDOW_NORMAL)
                     self.window_ok = True
                     node.get_logger().info(
-                        '画面窗口已打开，窗口内按 q / Esc 退出')
+                        '实时视频窗口已打开，按 q / Esc 关闭窗口')
                 except Exception as e:
                     self._fallback(f'打不开窗口（{e}）')
 
     def _fallback(self, reason):
-        if not self.snapshot_path:
+        if self.snapshot_path:
+            self.node.get_logger().warn(
+                f'{reason}，继续写快照：{self.snapshot_path}')
+            return
+        if self.allow_file_fallback and self.fallback_path:
             self.snapshot_path = self.fallback_path
+            self.node.get_logger().warn(
+                f'{reason}，自动改为快照输出：{self.snapshot_path}')
+            return
         self.node.get_logger().warn(
-            f'{reason}，自动改为快照输出：{self.snapshot_path}')
+            f'{reason}；不写文件，请订阅视频流话题（如 /drone/depth/image）')
 
     def enabled(self):
         """是否需要输出画面。关闭时调用方可跳过画框/拷贝等开销。"""

@@ -2,7 +2,12 @@
 
 面向 **多旋翼无人机 + PX4**：例程部署在 RDK X5 机载计算机 `/app/zettatree_demo`，飞行指令经 MAVROS 发给飞控。
 
-ROS2 例程用 `run.sh`（会 `source` TogetheROS）。
+来源：`RDK_X5_AI_Tutorial.md`。ROS2 例程用 `run.sh`（会 `source` TogetheROS）。
+
+开发机改完例程源码或 README 后，运行 `python D:\gs-workspace\zettatree_demo\_sync_to_x5.py` 同步到机载 `/app/zettatree_demo`。
+同脚本还会把主教程 `RDK_X5_AI_Tutorial.md` 同步到机载 `/app/RDK_X5_AI_Tutorial.md`。
+同步脚本会跳过 `_tmp_*`、`_sync_to_x5.py`、`_update_tutorial.py` 与 `__pycache__`。
+教程正文里的嵌入源码可用 `python D:\gs-workspace\zettatree_demo\_update_tutorial.py` 从本目录回写。
 
 每个例程一个目录，自带 `run.sh` / launch / 配置；被多个例程复用的运行时组件统一放在 `_common/`。
 
@@ -10,7 +15,7 @@ ROS2 例程用 `run.sh`（会 `source` TogetheROS）。
 
 | 目录 | 文档章节 | 说明 | 硬件依赖 |
 |------|----------|------|----------|
-| `_common` | 2.7 / 3.1 | 共享组件：MAVROS 插件清单、OFFBOARD 管理器、相机、YOLO、室内限速 | 无 |
+| `_common` | 2.7 / 3.1 / 4.3 | 共享组件：MAVROS、OFFBOARD、相机、YOLO、深度点云、室内限速 | 无 |
 | `00_env_check` | — | 环境自检 | 无 |
 | `01_uart_serial` | 1.2.7 | 例程1：40PIN 针脚串口（机载↔飞控）读姿态 / 拆桨电机测试 | 飞控 TELEM + 杜邦线 |
 | `02_bench_pose_sim` | 2.8 | 例程2：台架位姿模拟器（室内无 GPS、拆桨验证用） | 飞控，**拆桨** |
@@ -19,7 +24,10 @@ ROS2 例程用 `run.sh`（会 `source` TogetheROS）。
 | `05_obstacle_avoidance` | 3.2 | 例程5：摄像头识别避障（单目估距） | 摄像头 + BPU + 飞控 |
 | `06_autonomous_cruise` | 4.1 | 例程6：自主巡航拍照（巡航画面） | 飞控 + 摄像头 |
 | `07_target_tracking` | 4.2 | 例程7：停机坪 H 标对准降落 | 摄像头 + 飞控 |
-| `08_formation_flight` | 4.3 | 例程8：编队（一机一进程） | 多机 |
+| `08_depth_camera` | 4.3 | 例程8：深度/双目点云建模（MIPI 视差或 Orbbec） | MIPI 双目或 USB3 深度相机（可 simulate） |
+| `09_depth_nav` | 4.4 | 例程9：深度相机自主导航（完整 EGO） | 深度相机 + 飞控，**拆桨** |
+| `10_target_follow` | 4.5 | 例程10：目标跟随（YOLO 行人 + EGO 动态 goal） | 深度相机 + BPU + 飞控，**拆桨** |
+| `11_formation_flight` | 4.6 | 例程11：编队（一机一进程） | 多机 |
 
 ## 使用约定
 

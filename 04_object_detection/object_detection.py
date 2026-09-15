@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """目标检测 ROS 节点。文档 3.1。
 
-订阅 ``/camera/image_raw``，交给 ``_common/yolo_detector.py`` 做整条推理链
-（NV12 → BPU → DFL → NMS，跟官方
-``/app/pydev_demo/02_detection_sample/03_ultralytics_yolov8`` 同一套做法），
-结果发到 ``/drone/detection_position``，同时把推理画面画出来。
+订阅 ``/camera/image_raw``，经 ``_common/yolo_detector.py`` 完成端到端推理
+（NV12 → BPU → DFL → NMS，与官方
+``/app/pydev_demo/02_detection_sample/03_ultralytics_yolov8`` 对齐），
+将结果发布至 ``/drone/detection_position``，并输出推理画面。
 
-``--show`` / launch 的 ``show:=`` 默认开着：有显示器就弹窗（框 + 类别/置信度），
-没有就隔一会儿写一张快照（默认 ``/tmp/detection_snapshot.jpg``）。
-模型没起来或推理报错时，仍出原图，叠一行状态字。窗口里按 q / Esc
-只关画面，节点还在跑。
+``--show`` / launch 参数 ``show:=`` 默认开启：有显示环境时弹窗（框 + 类别/置信度），
+无显示环境时周期性写入快照（默认 ``/tmp/detection_snapshot.jpg``）。
+模型未加载或推理失败时仍输出原图并叠加状态文字。窗口内按 q / Esc
+仅关闭画面输出，节点继续运行。
 
-别把像素框中心当成 map 系三维点，更别写死 ``(0,0,2)`` 当目标位姿。
-类别是 COCO 80 类；换模型的话，解码假设也要一起改。
+像素框中心不等于 map 系三维坐标，不得写死 ``(0,0,2)`` 作为目标位姿。
+类别为 COCO 80 类；更换模型时须同步调整解码假设。
 """
 import argparse
 import os

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""例程退出或 Ctrl+C 之后，经串口强制上锁，免得电机还在转。
+"""例程退出或 Ctrl+C 后，经串口强制上锁，防止电机继续转动。
 
-``ros2 launch`` 被打断时，节点几乎同时退出，MAVROS 往往比管理器先死，
-ROS 服务来不及上锁，飞控却还 armed，电调就会一直转。
+``ros2 launch`` 被中断时，节点几乎同时退出，MAVROS 往往先于管理器退出，
+ROS 服务来不及完成上锁，飞控可能仍处于 armed，电调会持续转动。
 
-这个脚本不走 ROS：直接打开 ``/dev/ttyS2``，发
+本脚本不依赖 ROS：直接打开 ``/dev/ttyS2``，发送
 ``MAV_CMD_COMPONENT_ARM_DISARM``（400，param1=0 上锁，param2=21196）。
-``run_flight.sh`` 在退出时会调它；也可以自己手动跑。
+由 ``run_flight.sh`` 在退出时调用，也可手动执行。
 
-调用前最好先把占用串口的 mavros 停掉（``run.sh`` 里已经 sleep 等了一会儿）。
+调用前应确保占用串口的 mavros 已释放（``run.sh`` 中已预留短暂等待）。
 """
 from __future__ import annotations
 

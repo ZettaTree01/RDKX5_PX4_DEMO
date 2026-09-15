@@ -15,7 +15,8 @@ MODS = [
     "/app/zettatree_demo/05_obstacle_avoidance/obstacle_avoidance.py",
     "/app/zettatree_demo/06_autonomous_cruise/autonomous_cruise.py",
     "/app/zettatree_demo/07_target_tracking/target_tracking.py",
-    "/app/zettatree_demo/08_formation_flight/formation_flight.py",
+    "/app/zettatree_demo/10_target_follow/target_follow.py",
+    "/app/zettatree_demo/11_formation_flight/formation_flight.py",
 ]
 
 

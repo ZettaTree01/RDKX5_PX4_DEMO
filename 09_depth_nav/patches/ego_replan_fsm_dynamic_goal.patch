@@ -1,0 +1,39 @@
+--- a/src/planner/plan_manage/src/ego_replan_fsm.cpp
++++ b/src/planner/plan_manage/src/ego_replan_fsm.cpp
+@@ -205,17 +205,15 @@
+       have_new_target_ = true;
+ 
+       /*** FSM状态转换 ***/
++      // ZETTATREE: dynamic goal replan
++      // 回调内不能 spin_some：节点已在主 executor，会抛
++      // "already added to an executor" 使进程 abort。
++      // EXEC_TRAJ 直接请求重规划；GEN_NEW_TRAJ / REPLAN_TRAJ 本轮忽略，
++      // 目标跟随会周期性下发新目标。
+       if (exec_state_ == WAIT_TARGET)
+         changeFSMExecState(GEN_NEW_TRAJ, "TRIG");
+-      else
+-      {
+-        while (exec_state_ != EXEC_TRAJ)
+-        {
+-          rclcpp::spin_some(node_);
+-          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+-        }
++      else if (exec_state_ == EXEC_TRAJ)
+         changeFSMExecState(REPLAN_TRAJ, "TRIG");
+-      }
+ 
+       visualization_->displayGlobalPathList(gloabl_traj, 0.1, 0);
+     }
+@@ -241,7 +239,11 @@
+ 
+     init_pt_ = odom_pos_;
+ 
+-    Eigen::Vector3d end_wp(msg->pose.position.x, msg->pose.position.y, 1.0);
++    // ZETTATREE: dynamic goal replan
++    // 尊重目标 z（例程 10 目标跟随下发 EGO 对齐系高度）；
++    // RViz 2D Nav Goal 的 z=0 仍按默认巡航高度 1.0 m。
++    const double z_goal = msg->pose.position.z > 0.05 ? msg->pose.position.z : 1.0;
++    Eigen::Vector3d end_wp(msg->pose.position.x, msg->pose.position.y, z_goal);
+ 
+     planNextWaypoint(end_wp);
+   }

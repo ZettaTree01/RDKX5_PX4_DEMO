@@ -19,6 +19,15 @@ _CN_ASCII = (
     ('悬停，规划航点', 'HOVER PLAN'), ('航点', 'WP'),
     ('已完成，降落', 'DONE LAND'), ('高度', 'ALT'),
     ('等待起飞', 'WAIT TAKEOFF'), ('悬停搜索', 'HOVER SEARCH'),
+    ('导航中', 'NAV'), ('完成，降落', 'DONE LAND'),
+    ('避障中', 'AVOID'), ('阶段', 'phase'),
+    ('相对高', 'rel_alt'), ('前方深', 'front'),
+    ('轨迹点', 'trail'), ('等待模拟深度', 'wait sim depth'),
+    ('等待深度图', 'wait depth'),
+    ('位移', 'MOVE'), ('急停', 'STOP'), ('避障', 'AVOID'),
+    ('前', 'FWD'), ('后', 'BACK'), ('左', 'LEFT'), ('右', 'RIGHT'),
+    ('上升', 'UP'), ('下降', 'DOWN'), ('悬停', 'HOVER'),
+    ('刹前', 'SLOW'),
 )
 
 
@@ -48,7 +57,9 @@ def _ascii_hud(text):
     out = text
     for cn, en in _CN_ASCII:
         out = out.replace(cn, en)
-    return out
+    # OpenCV putText 无法画剩余汉字，去掉以免整行变成 ??????
+    out = ''.join(ch if ord(ch) < 128 else '' for ch in out)
+    return out.strip() or '?'
 
 
 def put_cn_lines(img, lines, origin=(10, 8), size=22):

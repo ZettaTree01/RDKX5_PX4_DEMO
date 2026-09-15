@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """PX4 OFFBOARD 管理器（文档 2.7）。
 
-飞行例程的 launch 都会拉起这个节点。飞控侧的设定点、解锁、切模式、写参数
-都从这里出去；任务节点不要自己往 MAVROS 的 setpoint 话题塞东西，两路一起发
-会抢控制权。
+各飞行例程的 launch 会拉起本节点。飞控侧设定点、解锁、切模式与写参数
+均由此节点发出；任务节点不得并行向 MAVROS setpoint 话题发布，否则会抢占控制权。
 
-任务节点只跟这些话题打交道：
+任务节点仅通过以下话题与本节点交互：
 
   /drone/setpoint_position/local   本地 ENU 位置
   /drone/setpoint_velocity/body    机体 FLU 速度
   /drone/control/land              请求降落
-  /drone/status/airborne           本节点对外说「已经飞起来了」
+  /drone/status/airborne           本节点对外发布「已起飞」状态
 
-不加 ``--arm`` 时只监视：照常发「保持当前位置」，不解锁。
-加了 ``--bench`` 就是室内拆桨台架：写一串 RAM 参数，用姿态设定点进 OFFBOARD，
-再强制解锁（21196）。强制解锁照样过健康检查，``COM_ARM_IMU_*`` 别写成 0。
+未指定 ``--arm`` 时为监视模式：持续发送「保持当前位置」设定点，不解锁。
+指定 ``--bench`` 表示室内拆桨台架模式：写入一组 RAM 参数，以姿态设定点进入
+OFFBOARD，再强制解锁（21196）。强制解锁仍会执行健康检查，``COM_ARM_IMU_*``
+不得设为 0。
 
-Ctrl+C 时本节点会尽量上锁；``run.sh`` 退出时还会再经串口强制上锁一次。
+Ctrl+C 时本节点尽量请求上锁；``run.sh`` 退出时还会经串口强制上锁一次。
 
-大致流程（约 20 Hz）：写参数 → 预热设定点 → OFFBOARD 解锁 → 起飞/悬停 →
-转发任务；任务超过 0.5 s 没更新就钉住悬停。收到降落请求后，台架自己下降再
-上锁，实飞则切 AUTO.LAND。
+主流程（约 20 Hz）：写参数 → 预热设定点 → OFFBOARD 解锁 → 起飞/悬停 →
+转发任务；任务超过 0.5 s 未更新则保持悬停。收到降落请求后，台架模式下下降后上锁，
+实飞则切换 AUTO.LAND。
 """
 import argparse
 import math
@@ -53,7 +53,7 @@ from indoor import (
     THR_MIN, TKO_SPEED, XY_VEL_MAX, Z_VEL_MAX)
 
 # PX4 events::ID 的 FNV-1a 低 24 位；mavros 常把 EVENT <id> 打进 STATUSTEXT。
-# 用此表把拒解锁原因译成人话，避免只看见数字。
+# 用此表把拒解锁原因翻译为可读说明，避免只看见数字。
 _PX4_EVENT_NAMES = {
     133277: 'Arming denied: Resolve system health failures first',
     276785: 'Press safety button first',
@@ -105,7 +105,7 @@ class OffboardManager(Node):
         self.state = State()
         self.pose = None                # (x,y,z, qx,qy,qz,qw) 本地 ENU
         self.home = None                # 开机/重定原点时的位置
-        self.hold_target = None         # 无任务时钉住的目标点
+        self.hold_target = None         # 无任务时锁定的目标点
         self.hold_orientation = None
 
         # 任务节点最近一次输入（超时见 _task_is_fresh）
