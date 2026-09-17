@@ -76,6 +76,9 @@ bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 ```
 
 > Stereonet 模式下 MIPI 未就绪则退出，避免无图启动规划。
+>
+> `Ctrl+C` 会经 `_common/run_flight.sh` 先停 MIPI/Stereonet/EGO/RViz/MAVROS，再限时强制上锁；若仍有残留可手动：
+> `bash /app/zettatree_demo/_common/stop_nav_stack.sh`
 
 ## RViz2（完整 EGO）
 

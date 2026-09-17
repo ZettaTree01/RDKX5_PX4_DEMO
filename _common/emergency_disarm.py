@@ -38,15 +38,17 @@ def disarm(port: str, baud: int, quiet: bool = False, retries: int = 8) -> bool:
     mav = mavlink.MAVLink(None, srcSystem=255, srcComponent=1)
     mav.robust_parsing = True
     last_err = None
+    retries = max(1, int(retries))
     for attempt in range(1, retries + 1):
         ser = None
         try:
-            ser = serial.Serial(port, baud, timeout=0.3)
+            # 打开失败别卡死：短超时，便于 EXIT 陷阱尽快返回
+            ser = serial.Serial(port, baud, timeout=0.2, write_timeout=0.5)
             sysid = compid = None
             armed = None
             # 等飞控心跳（跳过地面站 / 伴飞自己的 HEARTBEAT）
             t0 = time.time()
-            while time.time() - t0 < 3.0:
+            while time.time() - t0 < 1.5:
                 chunk = ser.read(ser.in_waiting or 1)
                 if not chunk:
                     continue
@@ -84,7 +86,7 @@ def disarm(port: str, baud: int, quiet: bool = False, retries: int = 8) -> bool:
                 ser.write(pkt.pack(mav))
                 time.sleep(0.15)
             t1 = time.time()
-            while time.time() - t1 < 2.5:
+            while time.time() - t1 < 1.2:
                 chunk = ser.read(ser.in_waiting or 1)
                 if not chunk:
                     continue
@@ -121,8 +123,10 @@ def main() -> int:
                     help='飞控串口，默认 40PIN UART2 /dev/ttyS2')
     ap.add_argument('--baud', type=int, default=DEFAULT_BAUD)
     ap.add_argument('--quiet', action='store_true', help='少打日志')
+    ap.add_argument('--retries', type=int, default=8,
+                    help='串口忙/无心跳时的重试次数（EXIT 陷阱建议 3）')
     args = ap.parse_args()
-    ok = disarm(args.port, args.baud, quiet=args.quiet)
+    ok = disarm(args.port, args.baud, quiet=args.quiet, retries=args.retries)
     return 0 if ok else 1
 
 
