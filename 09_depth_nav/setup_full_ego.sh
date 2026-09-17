@@ -165,6 +165,8 @@ fi
 
 # shellcheck disable=SC1091
 source "$EGO_WS/install/setup.bash"
+# rsync/scp 后常见丢可执行位，launch 会报 executable not found
+find "$EGO_WS/install" -type f \( -name 'ego_planner_node' -o -name 'traj_server' \) -exec chmod a+x {} +
 echo "[ego] 验证："
 ros2 pkg prefix ego_planner && ros2 pkg executables ego_planner | head
 echo "[ego] 完成。运行："
