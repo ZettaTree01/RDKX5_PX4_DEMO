@@ -2,14 +2,15 @@
 """00 环境一键体检/修复器：完成后直接进入例程验证与开发阶段。
 
 目标不是“列一堆缺失项”，而是尽可能把软件环境修到可运行状态：
-1. 自动选择并 source RDK X5 TogetheROS/ROS2 Humble；
-2. 自动安装 Ubuntu/ROS 构建、GUI、通信、视觉依赖；
-3. 自动发现并安装 apt 源中可用的 RDK hobot/mipi/stereonet 包；
-4. 自动准备 colcon/rosdep/C++ EGO-Planner（09/10 共用）；
-5. 修复当前用户常见 dialout/i2c 权限与 ~/.bashrc ROS 环境；
-6. 检查 GS130W、Stereonet、YOLO 模型、RViz、MAVROS；
-7. 对 02~11 的 launch 做“解析级”启动验证，不真正解锁/启动飞控；
-8. 最终输出 READY / BLOCKED，并明确剩余项是否只是硬件未接入。
+1. 只使用地平线 TogetheROS Humble（/opt/tros/humble），不把原生 /opt/ros/humble 当成第二套 ROS2；
+2. 检查 TROS 版本与 Humble 发行版，而不是不存在的 `ros2 --version`；
+3. 自动安装 Ubuntu/ROS 构建、GUI、通信、视觉依赖；
+4. 自动发现并安装 apt 源中可用的 RDK mipi/stereonet/dnn_node 包；
+5. 自动准备 colcon/rosdep/C++ EGO-Planner（09/10 共用）；
+6. 修复当前用户常见 dialout/i2c 权限与 ~/.bashrc（source _common/env.sh）；
+7. 检查 GS130W、Stereonet、YOLO 模型、RViz、MAVROS；
+8. 对 02~11 的 launch 做“解析级”启动验证，不真正解锁/启动飞控；
+9. 最终输出 READY / BLOCKED，并明确剩余项是否只是硬件未接入。
 
 注意：RDK 厂商组件必须与板端 BSP/TogetheROS 匹配。脚本只会安装 apt 源里真实存在的
 厂商包，不会从 PyPI 猜测 hbm_runtime/Hobot.GPIO 等包，避免破坏 BSP。
@@ -33,7 +34,8 @@ os.environ.setdefault("PIP_TRUSTED_HOST", "pypi.tuna.tsinghua.edu.cn")
 os.environ.setdefault("PIP_DEFAULT_TIMEOUT", "60")
 
 ROOT = Path(__file__).resolve().parents[1]  # zettatree_demo 根目录
-SETUPS = [Path('/opt/tros/humble/setup.bash'), Path('/opt/ros/humble/setup.bash')]
+TROS_SETUP = Path('/opt/tros/humble/setup.bash')
+ROS_UNDERLAY = Path('/opt/ros/humble/setup.bash')  # TROS 依赖层，不是第二套 ROS2
 CHECKS: list[tuple[bool, str, str, str]] = []  # (ok, 名称, 详情, 类别)
 
 # 标准软件包：不存在就安装。
@@ -67,8 +69,9 @@ VENDOR_PATTERNS = {
         'tros-humble-hobot-stereonet', 'tros-humble-hobot-stereo-net',
         'hobot-stereonet',
     ],
-    'hobot_dnn': [
-        'tros-humble-hobot-dnn', 'tros-humble-hobot-dnn-node', 'hobot-dnn',
+    'dnn_node': [
+        'tros-humble-dnn-node', 'tros-humble-hobot-dnn-node',
+        'tros-humble-hobot-dnn', 'hobot-dnn',
     ],
 }
 
@@ -108,11 +111,29 @@ def import_ok(mod: str):
 
 
 def active_setup():
-    """返回当前可用的 ROS/TROS setup.bash；TROS 优先，标准 ROS 后备。"""
-    for p in SETUPS:
-        if p.exists():
-            return p
-    return None
+    """只认地平线 TogetheROS Humble；原生 /opt/ros/humble 不算独立 ROS2。"""
+    return TROS_SETUP if TROS_SETUP.exists() else None
+
+
+def overlay_setups() -> list[Path]:
+    """本地源码 overlay：MAVROS、EGO-Planner（存在才 source）。"""
+    return [
+        p for p in (
+            ROOT / 'mavros_ws' / 'install' / 'setup.bash',
+            ROOT / '09_depth_nav' / 'ego_ws' / 'install' / 'setup.bash',
+        ) if p.exists()
+    ]
+
+
+def overlay_source_cmd() -> str:
+    """拼出 overlay 的 source 语句。"""
+    return ''.join(f'source "{p}" >/dev/null 2>&1; ' for p in overlay_setups())
+
+
+def tros_deb_version() -> str:
+    """读取 tros-humble 包版本，如 2.5.2-jammy.xxx。"""
+    p = run(['dpkg-query', '-W', '-f=${Version}', 'tros-humble'], timeout=10)
+    return (p.stdout or '').strip() if p.returncode == 0 else ''
 
 
 # Debian 包名 → ROS 包名显式映射（deb 用 '-'，ROS 常用 '_'）
@@ -166,11 +187,8 @@ def ros_pkg_exists(pkg_or_ros_name: str, setup=None) -> bool:
         return False
     ros_name = _ros_name_for_deb(pkg_or_ros_name) if pkg_or_ros_name.startswith(
         ("ros-humble-", "tros-humble-")) else pkg_or_ros_name
-    # 叠加本地 mavros_ws overlay（若存在）
-    mavros_setup = ROOT / "mavros_ws" / "install" / "setup.bash"
-    extra = f'source "{mavros_setup}" >/dev/null 2>&1; ' if mavros_setup.exists() else ""
     p = source_and_raw(
-        f'{extra}ros2 pkg prefix {ros_name}',
+        f'ros2 pkg prefix {ros_name}',
         setup, timeout=20)
     return p.returncode == 0 and bool((p.stdout or "").strip())
 
@@ -183,8 +201,9 @@ def source_and_raw(bash_cmd: str, setup=None, *, timeout=120):
     env = os.environ.copy()
     env.pop("RMW_IMPLEMENTATION", None)  # 避免坏 RMW 污染探测
     env["ROS_LOG_DIR"] = env.get("ROS_LOG_DIR", "/tmp/zettatree_roslog")
+    extra = overlay_source_cmd()
     return run(
-        ["bash", "-lc", f'source "{setup}" >/dev/null 2>&1 && {bash_cmd}'],
+        ["bash", "-lc", f'source "{setup}" >/dev/null 2>&1 && {extra}{bash_cmd}'],
         env=env, timeout=timeout)
 
 
@@ -302,13 +321,20 @@ def ensure_standard_apt(yes: bool):
 
 
 def rmw_library_present(rmw: str) -> bool:
-    """在常见路径或 ldconfig 缓存中查找 lib{rmw}.so。"""
+    """在 TROS/ROS 安装目录或 ldconfig 缓存中查找 lib{rmw}.so（不递归扫整个 /usr）。"""
     lib = f'lib{rmw}.so'
-    for base in ('/opt/tros/humble', '/opt/ros/humble', '/usr/lib', '/usr/local/lib'):
-        for p in Path(base).rglob(lib) if Path(base).exists() else []:
+    for base in (
+        '/opt/tros/humble/lib',
+        '/opt/ros/humble/lib',
+        '/opt/ros/humble/lib/aarch64-linux-gnu',
+        '/usr/lib',
+        '/usr/lib/aarch64-linux-gnu',
+        '/usr/local/lib',
+    ):
+        if (Path(base) / lib).is_file():
             return True
     p = run(['ldconfig', '-p'], timeout=20)
-    return p.returncode == 0 and lib in p.stdout
+    return p.returncode == 0 and lib in (p.stdout or '')
 
 
 def choose_rmw(setup):
@@ -329,22 +355,51 @@ def ros_env(setup):
     return env
 
 
+def check_tros_version(setup) -> bool:
+    """检查地平线 TROS Humble 版本。Humble 的 ros2 没有 --version，用发行版变量 + deb。"""
+    ver = tros_deb_version()
+    if ver:
+        record(True, 'TROS 版本', f'tros-humble {ver}')
+    else:
+        record(True, 'TROS 版本', f'{setup}（无 tros-humble deb 元数据，可能为镜像预装）')
+
+    p = source_and_raw(
+        'printf "%s|%s|%s" "${ROS_DISTRO-}" "${ROS_VERSION-}" "${ROS_PYTHON_VERSION-}"',
+        setup, timeout=20)
+    distro, ros_ver, py_ver = ((p.stdout or '').strip().split('|') + ['', '', ''])[:3]
+    ok = distro == 'humble' and ros_ver == '2'
+    detail = f'ROS_DISTRO={distro} ROS_VERSION={ros_ver} Python={py_ver}'
+    record(ok, 'ROS 发行版',
+           detail if ok else f'期望 Humble / ROS 2，实际 {detail}',
+           'software')
+    if ROS_UNDERLAY.exists():
+        record(True, 'ROS Humble 依赖层',
+               f'{ROS_UNDERLAY}（由 TROS overlay，不要单独 source）')
+    return ok
+
+
 def ensure_ros(yes: bool):
-    """确保 ROS2/TROS 可用：setup、RMW、关键 ROS 包、必要时 MAVROS。"""
+    """确保地平线 TROS Humble 可用：版本、RMW、关键包、必要时 MAVROS。"""
     setup = active_setup()
     if not setup:
-        ros_candidates = [p for p in ROS_PACKAGES if apt_available(p)]
-        if ros_candidates:
-            if not apt_install(ros_candidates, yes, 'ROS2 Humble / RViz / MAVROS'):
+        tros_debs = [p for p in ('tros-humble', 'tros-humble-base') if apt_available(p)]
+        if tros_debs:
+            if not apt_install(tros_debs, yes, '地平线 TogetheROS Humble'):
                 return None
             setup = active_setup()
     if not setup:
-        record(False, 'ROS2 Humble/TROS',
-               '未找到 /opt/tros/humble 或 /opt/ros/humble；且当前系统没有可用的 Humble 安装源',
+        extra = ''
+        if ROS_UNDERLAY.exists():
+            extra = ' 检测到原生 /opt/ros/humble，但本例程不把它当作一套 ROS2。'
+        record(False, 'TogetheROS Humble',
+               '未找到 /opt/tros/humble。请安装 tros-humble（地平线 ROS2）。' + extra,
                'software')
         return None
 
-    record(True, 'ROS setup', str(setup))
+    record(True, 'TROS setup', str(setup))
+    if not check_tros_version(setup):
+        return None
+
     clean = ros_env(setup)
     p = subprocess.run(
         ['bash', '-lc', f'source "{setup}" >/dev/null 2>&1 && ros2 -h'],
@@ -352,7 +407,8 @@ def ensure_ros(yes: bool):
     if p.returncode != 0:
         record(False, 'ros2 命令', (p.stderr or p.stdout).strip()[:500])
         return None
-    record(True, 'ros2 命令', 'CLI 可用')
+    record(True, 'ros2 命令', 'CLI 可用（Humble 无 ros2 --version，用 TROS 版本项）')
+    source_and_raw('ros2 daemon stop >/dev/null 2>&1 || true', setup, timeout=20)
 
     # 尽量保证至少有一个 RMW 能真正加载
     for rmw_pkg in ('ros-humble-rmw-cyclonedds-cpp', 'ros-humble-rmw-fastrtps-cpp'):
@@ -388,7 +444,12 @@ def ensure_ros(yes: bool):
             # deb 已装但 ros2 暂时看不见时，仍算候选（多数能被 setup 找到）
             pass
 
-    really_missing = [pkg for pkg in ROS_PACKAGES if not ros_pkg_exists(pkg, setup)]
+    # mavlink 是 C 库不是 ROS 包；ros_base 是 meta 包。二者以 dpkg 为准。
+    _not_ros_pkg = {"ros-humble-mavlink", "ros-humble-ros-base"}
+    really_missing = [
+        pkg for pkg in ROS_PACKAGES
+        if pkg not in _not_ros_pkg and not ros_pkg_exists(pkg, setup)
+    ]
     if really_missing:
         to_apt = [pkg for pkg in really_missing if apt_available(pkg) or pkg in missing]
         # 去重并只装 apt 能解析的
@@ -427,18 +488,25 @@ def ensure_ros(yes: bool):
             ok = ros_pkg_exists(_ros_name_for_deb(pkg), setup)
         record(ok, f"ROS2:{_ros_name_for_deb(pkg)}",
                "" if ok else f"缺失 {pkg}")
-    # mavros 节点单独记录
+    # mavros 节点单独记录（apt 常无 arm64 deb）
     mav_ok = ros_pkg_exists("mavros", setup)
+    extras_ok = ros_pkg_exists("mavros_extras", setup)
     record(mav_ok, "ROS2:mavros",
            "" if mav_ok else "缺失；已尝试 apt / 源码编译（见 setup_mavros.sh）")
+    record(extras_ok, "ROS2:mavros_extras",
+           "" if extras_ok else "缺失； jammy/arm64 需源码编译")
     return setup
 
 
 def ensure_mavros(setup, yes: bool) -> bool:
     """安装 MAVROS 节点。优先 apt；jammy/arm64 常无 deb 时回退源码编译。"""
-    if ros_pkg_exists("mavros", setup):
-        record(True, "MAVROS", "已可用")
+    mav_ok = ros_pkg_exists("mavros", setup)
+    extras_ok = ros_pkg_exists("mavros_extras", setup)
+    if mav_ok and extras_ok:
+        record(True, "MAVROS", "mavros + mavros_extras 已可用")
         return True
+    if mav_ok and not extras_ok:
+        print("\n[MAVROS] 已有 mavros，补编 mavros_extras …")
 
     # 先装 msgs（import / 消息定义）
     msgs = [p for p in ("ros-humble-mavros-msgs", "ros-humble-mavlink") if apt_available(p)]
@@ -474,8 +542,14 @@ def ensure_mavros(setup, yes: bool) -> bool:
                f"源码编译失败；请手动: bash {script}", "software")
         return False
     ok = ros_pkg_exists("mavros", setup)
-    record(ok, "MAVROS",
-           str(ROOT / "mavros_ws") if ok else "编译结束但仍不可用", "software")
+    extras_ok = ros_pkg_exists("mavros_extras", setup)
+    detail = str(ROOT / "mavros_ws") if ok else "编译结束但仍不可用"
+    if ok and not extras_ok:
+        detail += "（mavros_extras 仍缺失）"
+    record(ok, "MAVROS", detail, "software")
+    if ok:
+        record(extras_ok, "MAVROS extras",
+               "" if extras_ok else "源码工作空间未编出 mavros_extras", "software")
     return ok
 
 def ensure_vendor(setup, yes: bool):
@@ -484,7 +558,7 @@ def ensure_vendor(setup, yes: bool):
         return
     chosen = []
     for logical, candidates in VENDOR_PATTERNS.items():
-        if ros_pkg_exists('mipi_cam' if logical == 'mipi_cam' else 'hobot_stereonet' if logical == 'hobot_stereonet' else 'hobot_dnn', setup):
+        if ros_pkg_exists(logical, setup):
             continue
         found = next((p for p in candidates if apt_available(p)), None)
         if found:
@@ -494,15 +568,34 @@ def ensure_vendor(setup, yes: bool):
     if chosen and not apt_install(chosen, yes, 'RDK/TogetheROS 厂商组件'):
         return
 
-    for pkg, logical in [('mipi_cam', 'GS130W mipi_cam'), ('hobot_stereonet', 'StereoNet/BPU'), ('hobot_dnn', 'Hobot DNN')]:
+    for pkg, logical in [
+        ('mipi_cam', 'GS130W mipi_cam'),
+        ('hobot_stereonet', 'StereoNet/BPU'),
+        ('dnn_node', 'Hobot DNN (dnn_node)'),
+    ]:
         ok = ros_pkg_exists(pkg, setup)
         record(ok, logical, '' if ok else f'ROS 包 {pkg} 不存在', 'vendor')
         if ok:
             p = source_and(['ros2', 'pkg', 'executables', pkg], setup, timeout=20)
-            record(p.returncode == 0 and bool(p.stdout.strip()), f'{pkg} executables', p.stdout.strip().replace('\n', '; ')[:300], 'vendor')
+            exe = (p.stdout or '').strip().replace('\n', '; ')[:300]
+            if pkg == 'dnn_node':
+                record(True, f'{pkg} executables',
+                       exe or '库包，无独立 executable（正常）', 'vendor')
+            else:
+                record(p.returncode == 0 and bool(exe), f'{pkg} executables', exe, 'vendor')
 
-    # hbm_runtime 是 Python 模块；只有已经随 BSP 提供才视为正确。
-    for mod in ['hbm_runtime', 'Hobot.GPIO', 'i2cdev']:
+    # BPU Python：旧镜像 hbm_runtime，RDK X5 当前 BSP 常用 hobot_dnn。
+    ok_hbm, d_hbm = import_ok('hbm_runtime')
+    ok_hdnn, d_hdnn = import_ok('hobot_dnn')
+    if ok_hbm:
+        record(True, 'Python:hbm_runtime', d_hbm, 'vendor')
+    elif ok_hdnn:
+        record(True, 'Python:BPU runtime',
+               f'hobot_dnn {d_hdnn or "pyeasy_dnn"}', 'vendor')
+    else:
+        record(False, 'Python:hbm_runtime',
+               '未安装；必须来自匹配的 RDK BSP/TROS（hbm_runtime 或 hobot_dnn）', 'vendor')
+    for mod in ['Hobot.GPIO', 'i2cdev']:
         ok, detail = import_ok(mod)
         record(ok, f'Python:{mod}', detail if ok else '未安装；必须来自匹配的 RDK BSP/TROS', 'vendor')
 
@@ -549,33 +642,41 @@ def ensure_ego(yes: bool, skip_ego: bool):
 
 
 def persist_shell_env(setup):
-    """让新开终端直接有 ros2；不能修改父 shell，所以同时输出当前终端命令。"""
+    """让新开终端 source _common/env.sh（只加载 TROS + overlay）。"""
     bashrc = Path.home() / '.bashrc'
-    marker = '# >>> zettatree_demo ROS2 environment >>>'
-    mavros_setup = ROOT / 'mavros_ws' / 'install' / 'setup.bash'
-    mavros_line = (
-        f'if [ -f "{mavros_setup}" ]; then source "{mavros_setup}"; fi\n'
-        if True else ''
+    begin = '# >>> zettatree_demo ROS2 environment >>>'
+    end = '# <<< zettatree_demo ROS2 environment <<<'
+    env_sh = ROOT / '_common' / 'env.sh'
+    block = (
+        f'\n{begin}\n'
+        f'if [ -f "{env_sh}" ]; then\n'
+        f'  # shellcheck disable=SC1091\n'
+        f'  source "{env_sh}"\n'
+        f'elif [ -f "{setup}" ]; then\n'
+        f'  source "{setup}"\n'
+        f'fi\n'
+        f'{end}\n'
     )
-    block = f'''\n{marker}\nif [ -f "{setup}" ]; then source "{setup}"; fi\n{mavros_line}export ROS_LOG_DIR="${{ROS_LOG_DIR:-/tmp/zettatree_roslog}}"\nif [ -z "${{RMW_IMPLEMENTATION:-}}" ]; then\n  if ldconfig -p 2>/dev/null | grep -q 'librmw_cyclonedds_cpp.so'; then export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp;\n  elif ldconfig -p 2>/dev/null | grep -q 'librmw_fastrtps_cpp.so'; then export RMW_IMPLEMENTATION=rmw_fastrtps_cpp;\n  else unset RMW_IMPLEMENTATION; fi\nfi\n# <<< zettatree_demo ROS2 environment <<<\n'''
     try:
         text = bashrc.read_text(encoding='utf-8') if bashrc.exists() else ''
-        if marker not in text:
-            bashrc.parent.mkdir(parents=True, exist_ok=True)
-            with bashrc.open('a', encoding='utf-8') as f:
-                f.write(block)
-            record(True, '~/.bashrc ROS2 环境', '已加入，重新打开终端自动生效')
-        else:
-            # 旧块存在时，若缺 mavros overlay 则补一行
-            if str(mavros_setup) not in text and mavros_setup.exists():
-                with bashrc.open('a', encoding='utf-8') as f:
-                    f.write(
-                        f'\n# zettatree mavros overlay\n'
-                        f'if [ -f "{mavros_setup}" ]; then source "{mavros_setup}"; fi\n'
-                    )
-            record(True, '~/.bashrc ROS2 环境', '已配置')
+        text = re.sub(
+            r'\n?# >>> zettatree_demo ROS2 environment >>>.*?'
+            r'# <<< zettatree_demo ROS2 environment <<<\n?',
+            '\n', text, flags=re.S)
+        text = re.sub(
+            r'\n?# >>> zettatree_demo mavros overlay >>>.*?'
+            r'# <<< zettatree_demo mavros overlay <<<\n?',
+            '\n', text, flags=re.S)
+        text = re.sub(
+            r'\n?# zettatree mavros overlay\n'
+            r'if \[ -f "[^"]+" \]; then source "[^"]+"; fi\n?',
+            '\n', text)
+        bashrc.parent.mkdir(parents=True, exist_ok=True)
+        bashrc.write_text(text.rstrip() + '\n' + block, encoding='utf-8')
+        record(True, '~/.bashrc TROS 环境',
+               f'已写入 source {env_sh}，新终端自动加载 TROS')
     except Exception as e:
-        record(False, '~/.bashrc ROS2 环境', str(e))
+        record(False, '~/.bashrc TROS 环境', str(e))
 
 
 def ensure_groups(yes: bool):
@@ -674,15 +775,24 @@ def verify_launches(setup):
 
 def verify_commands(setup):
     """检查 rviz2/colcon/git 命令与 mavros/mipi_cam/stereonet 包是否可见。"""
-    checks=[('rviz2','RViz2'),('colcon','colcon'),('git','git')]
     all_ok=True
-    for cmd,label in checks:
-        ok=has_cmd(cmd)
-        record(ok,label,shutil.which(cmd) if ok else '命令不存在')
+    for cmd,label in [('rviz2','RViz2'),('colcon','colcon'),('git','git')]:
+        path = shutil.which(cmd) or ''
+        if not path:
+            for cand in (Path('/opt/tros/humble/bin')/cmd, Path('/opt/ros/humble/bin')/cmd):
+                if cand.is_file() and os.access(cand, os.X_OK):
+                    path = str(cand)
+                    break
+        if not path:
+            r = source_and_raw(f'command -v {cmd}', setup, timeout=20)
+            path = (r.stdout or '').strip()
+        ok = bool(path)
+        record(ok, label, path if ok else '命令不存在')
         all_ok &= ok
-    for pkg,label in [('mavros','MAVROS'),('mipi_cam','mipi_cam'),('hobot_stereonet','hobot_stereonet')]:
+    for pkg,label in [('mavros','MAVROS'),('mipi_cam','mipi_cam'),
+                      ('hobot_stereonet','hobot_stereonet'),('dnn_node','dnn_node')]:
         ok=ros_pkg_exists(pkg,setup)
-        record(ok,label,'' if ok else f'ROS package {pkg} 不存在','vendor' if pkg!='mavros' else 'software')
+        record(ok,label,'' if ok else f'ROS package {pkg} 不存在','vendor' if pkg not in ('mavros',) else 'software')
         all_ok &= ok
     return all_ok
 
@@ -696,7 +806,7 @@ def main():
     args=ap.parse_args()
     auto=args.yes and not args.check_only
 
-    print('RDK X5 无人机例程环境一键体检 / 修复器 v2.9')
+    print('RDK X5 无人机例程环境一键体检 / 修复器 v3.0（仅地平线 TROS Humble）')
     print('='*76)
     print('目标：脚本成功结束后，可直接进入 01~11 例程验证与开发。')
     print('不会自动解锁、不会启动飞控、不会启动相机、不会让电机转动。')
@@ -734,8 +844,8 @@ def main():
         if hw_fail:
             print('注意：当前剩余 FAIL 仅为硬件项；接上对应硬件并重启/重新登录后即可继续。')
         print('\n当前终端如果仍提示 ros2: command not found，请执行：')
-        print(f'  source {setup}')
-        print('新开终端会自动加载（脚本已写入 ~/.bashrc）。')
+        print(f'  source {ROOT / "_common" / "env.sh"}')
+        print('新开终端会自动加载（脚本已写入 ~/.bashrc，只 source TROS）。')
         return 0
     print('\nBLOCKED：仍存在软件/厂商环境阻断项。请根据上面的 FAIL 修复后重新运行本脚本。')
     return 1

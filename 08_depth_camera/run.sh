@@ -13,8 +13,7 @@
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source /app/zettatree_demo/_common/env.sh 2>/dev/null || \
-  source /opt/tros/humble/setup.bash 2>/dev/null || true
+source /app/zettatree_demo/_common/env.sh
 
 MODE=full
 ARGS=()
@@ -164,7 +163,7 @@ run_rviz_only() {
   if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
     echo "[08] 无 DISPLAY：请在板端桌面终端运行，或在同网 PC："
     echo "  export ROS_DOMAIN_ID=\${ROS_DOMAIN_ID:-0}"
-    echo "  source /opt/ros/humble/setup.bash"
+    echo "  source /opt/tros/humble/setup.bash   # 板端 TROS"
     echo "  rviz2 -d $CFG"
     echo "  # Fixed Frame=camera_link  Topic=/StereoNetNode/stereonet_pointcloud2"
     exit 1

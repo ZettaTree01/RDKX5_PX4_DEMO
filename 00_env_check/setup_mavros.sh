@@ -5,7 +5,7 @@
 #
 # 产物：/app/zettatree_demo/mavros_ws/install
 # 布局：mavros_ws/src/mavros/{libmavconn,mavros,mavros_extras,...}
-# 使用：source /opt/tros/humble/setup.bash && source .../mavros_ws/install/setup.bash
+# 使用：source /app/zettatree_demo/_common/env.sh（TROS + overlay）
 #
 # 不用 set -u：ament/TROS setup.bash 会读可选未定义变量（如 AMENT_TRACE_SETUP_FILES）
 set -eo pipefail
@@ -23,31 +23,31 @@ ROS_SETUP="${ROS_SETUP:-}"
 if [ -z "$ROS_SETUP" ]; then
   if [ -f /opt/tros/humble/setup.bash ]; then
     ROS_SETUP=/opt/tros/humble/setup.bash
-  elif [ -f /opt/ros/humble/setup.bash ]; then
-    ROS_SETUP=/opt/ros/humble/setup.bash
   else
-    echo "[mavros] ERROR: 未找到 ROS2 Humble setup.bash" >&2
+    echo "[mavros] ERROR: 未找到地平线 TogetheROS Humble：/opt/tros/humble/setup.bash" >&2
     exit 1
   fi
 fi
 _source_setup "$ROS_SETUP"
 
 _have_mavros() {
-  # ros2 能否解析到 mavros 包前缀
   ros2 pkg prefix mavros >/dev/null 2>&1
 }
 
-if _have_mavros; then
-  echo "[mavros] 已可用: $(ros2 pkg prefix mavros)"
-  exit 0
-fi
+_have_extras() {
+  ros2 pkg prefix mavros_extras >/dev/null 2>&1
+}
 
 if [ -f "$WS/install/setup.bash" ]; then
   _source_setup "$WS/install/setup.bash"
-  if _have_mavros; then
-    echo "[mavros] 使用已有工作空间: $WS"
-    exit 0
-  fi
+fi
+
+if _have_mavros && _have_extras; then
+  echo "[mavros] 已可用: $(ros2 pkg prefix mavros)"
+  exit 0
+fi
+if _have_mavros && ! _have_extras; then
+  echo "[mavros] 已有 mavros，继续编译 mavros_extras"
 fi
 
 # 纠正错误布局：曾把 mavros 仓库直接 clone 到 WS 根，同时又有 src/mavros，
@@ -153,7 +153,10 @@ PY
 _patch_mavlink_flix_compat
 
 cd "$WS"
-rm -rf build log 2>/dev/null || true
+if [ "${MAVROS_FORCE_CLEAN:-0}" = "1" ]; then
+  echo "[mavros] MAVROS_FORCE_CLEAN=1，清空 build/log"
+  rm -rf build log 2>/dev/null || true
+fi
 rosdep install --from-paths src --ignore-src -r -y || true
 
 NPROC="$(nproc 2>/dev/null || echo 2)"
@@ -198,20 +201,10 @@ if [ -x "$GEO_SCRIPT" ]; then
   bash "$GEO_SCRIPT" || true
 fi
 
-MARKER="# >>> zettatree_demo mavros overlay >>>"
-BASHRC="${HOME}/.bashrc"
-if [ -f "$BASHRC" ] && ! grep -qF "$MARKER" "$BASHRC" 2>/dev/null; then
-  cat >> "$BASHRC" <<EOF
-
-${MARKER}
-if [ -f "${WS}/install/setup.bash" ]; then
-  # shellcheck disable=SC1091
-  source "${WS}/install/setup.bash"
-fi
-# <<< zettatree_demo mavros overlay <<<
-EOF
-  echo "[mavros] 已写入 ~/.bashrc overlay"
-fi
-
 echo "[mavros] OK: $(ros2 pkg prefix mavros)"
-echo "[mavros] 当前终端请执行: source $WS/install/setup.bash"
+if _have_extras; then
+  echo "[mavros] extras: $(ros2 pkg prefix mavros_extras)"
+else
+  echo "[mavros] WARN: mavros_extras 仍不可见" >&2
+fi
+echo "[mavros] 当前终端请执行: source /app/zettatree_demo/_common/env.sh"

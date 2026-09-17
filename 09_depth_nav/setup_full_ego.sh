@@ -13,11 +13,8 @@ EGO_BRANCH="${EGO_BRANCH:-ros2_version}"
 if [ -f /opt/tros/humble/setup.bash ]; then
   # shellcheck disable=SC1091
   source /opt/tros/humble/setup.bash
-elif [ -f /opt/ros/humble/setup.bash ]; then
-  # shellcheck disable=SC1091
-  source /opt/ros/humble/setup.bash
 else
-  echo "[ego] 未找到 ROS2 Humble / TROS 环境" >&2
+  echo "[ego] 未找到地平线 TogetheROS Humble：/opt/tros/humble/setup.bash" >&2
   exit 1
 fi
 

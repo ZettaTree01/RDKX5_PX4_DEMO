@@ -4,7 +4,7 @@
 # CameraInfo 由 pub_stereo_caminfo.py 发布。
 set -e
 # shellcheck disable=SC1091
-source /opt/tros/humble/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash
+source /opt/tros/humble/setup.bash
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

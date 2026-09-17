@@ -9,7 +9,7 @@
 # 注意：不要用 `ros2 topic echo` 整包 Image 判活（NV12 大图易超时误报「未见帧」）。
 set -e
 # shellcheck disable=SC1091
-source /opt/tros/humble/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash
+source /opt/tros/humble/setup.bash
 
 W="${MIPI_IMAGE_WIDTH:-640}"
 H="${MIPI_IMAGE_HEIGHT:-352}"

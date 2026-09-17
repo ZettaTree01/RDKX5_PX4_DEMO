@@ -10,13 +10,15 @@ bash run.sh --yes
 首次执行建议用 `--yes`，它会自动完成：
 
 - Ubuntu 基础、编译、Python、OpenCV、GUI 依赖；
-- ROS2 Humble / TogetheROS、RViz2、tf2、image_transport、PCL、CycloneDDS、`mavros_msgs`；
-- **MAVROS 节点**：apt 有 `ros-humble-mavros` 则装；jammy/arm64 常无该 deb 时，自动运行 `setup_mavros.sh` 源码编译到 `mavros_ws/`；
-- 在当前 apt 源中真实存在的 RDK/TogetheROS `mipi_cam` / `hobot_stereonet` / DNN 包；
+- **仅地平线 TogetheROS Humble**（`/opt/tros/humble`）。原生 `/opt/ros/humble` 是 TROS 依赖层，不当作第二套 ROS2；
+- 检查 TROS 版本（`tros-humble` deb + `ROS_DISTRO=humble`），不用 Humble 不支持的 `ros2 --version`；
+- RViz2、tf2、image_transport、PCL、CycloneDDS、`mavros_msgs`；
+- **MAVROS 节点**：apt 有 `ros-humble-mavros` 则装；jammy/arm64 常无该 deb 时，自动运行 `setup_mavros.sh` 源码编译到 `mavros_ws/`（含 extras）；
+- 在当前 apt 源中真实存在的 RDK/TogetheROS `mipi_cam` / `hobot_stereonet` / `dnn_node` 包；
 - colcon / git / C++ EGO-Planner 编译环境；
 - 09/10 共用的完整 C++ EGO-Planner（自动拉取、补丁、Release 编译）；
 - 当前用户 `dialout` / `i2c` 权限组；
-- `~/.bashrc` 中的 ROS2/TROS（及 mavros_ws overlay）环境；
+- `~/.bashrc` source `_common/env.sh`（TROS + mavros/ego overlay）；
 - ROS2 Python import、MAVROS、RViz、GS130W mipi_cam、StereoNet；
 - YOLO BPU 模型；
 - 02~11 launch 的参数解析级启动检查。
@@ -60,33 +62,28 @@ READY：软件/ROS/RDK 运行环境已准备完成，可以进入例程验证与
 此时：
 
 ```bash
-ros2 --version
-rviz2 --version
-ros2 pkg prefix mavros          # apt 或 source .../mavros_ws/install
+source /app/zettatree_demo/_common/env.sh
+echo "$ROS_DISTRO"              # humble
+dpkg -l tros-humble             # 地平线 TROS 版本
+ros2 -h >/dev/null && echo OK   # Humble 没有 ros2 --version
+ros2 pkg prefix mavros
 ros2 pkg prefix mipi_cam
 ros2 pkg prefix hobot_stereonet
+ros2 pkg prefix dnn_node
 ros2 pkg prefix ego_planner
 ```
 
-若 MAVROS 仅源码安装，确认已：
-
-```bash
-source /opt/tros/humble/setup.bash
-source /app/zettatree_demo/mavros_ws/install/setup.bash
-ros2 pkg prefix mavros
-```
-
-均应可用。
+登录环境只 source **一套** TROS：`_common/env.sh` → `/opt/tros/humble/setup.bash`，再 overlay `mavros_ws` / `ego_ws`。不要再单独 `source /opt/ros/humble/setup.bash`。
 
 源码编译注意：
 
-- 编译前尽量停掉 Stereonet / mipi_cam 等重负载（同机 `-j2` 易 OOM 卡死）；默认 `MAVROS_JOBS=1`。
+- 编译前尽量停掉 Stereonet / mipi_cam 等重负载（同机多线程易 OOM 卡死）；可用 `MAVROS_JOBS=1` 强制单核。
 - `setup_mavros.sh` 会在系统 `ros-humble-mavlink` 尚无 `MAV_AUTOPILOT::FLIX` 时自动剥离相关代码，避免 `uas_stringify.cpp` 编译失败。
 
 如果当前旧终端仍然提示 `ros2: command not found`，执行：
 
 ```bash
-source /opt/tros/humble/setup.bash
+source /app/zettatree_demo/_common/env.sh
 ```
 
 或重新打开一个终端。脚本会把 ROS2/TROS 环境写入 `~/.bashrc`，新终端自动生效。当前终端若要立即生效，可执行 `source /app/zettatree_demo/00_env_check/activate.sh`。
