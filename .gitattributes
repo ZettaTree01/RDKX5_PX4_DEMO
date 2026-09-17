@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.names text eol=lf
+*.rviz text eol=lf
+*.patch text eol=lf
+*.png binary
+*.jpg binary
+*.bin binary

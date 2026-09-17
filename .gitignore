@@ -1,9 +1,24 @@
-# 本地调试产物，勿提交 / 勿同步到机载
+# 本地调试产物，勿提交
 _tmp_*
+*_snapshot.jpg
 **/__pycache__/
-*.pyc
+*.py[cod]
 *.log
 .DS_Store
-# EGO 源码/编译树在板端 ego_ws，勿放进例程目录同步
+Thumbs.db
+*.swp
+*~
+
+# 编辑器
+.vscode/
+.idea/
+.cursor/
+
+# 板端编译树 / 上游源码，勿放进例程仓库
 **/ego-planner-swarm/
 **/ego_ws/
+mavros/
+mavros_ws/
+
+# 量化模型由板端系统提供
+*.bin

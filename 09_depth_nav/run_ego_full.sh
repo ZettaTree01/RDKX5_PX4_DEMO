@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 例程9：完整 C++ EGO-Planner（需先 setup_full_ego.sh）
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -16,7 +16,6 @@ fi
 
 # shellcheck disable=SC1091
 source "$EGO_WS/install/setup.bash"
-export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 
 if ! ros2 pkg prefix ego_planner >/dev/null 2>&1; then
   echo "[09] ego_planner 包不可用，请重新编译 setup_full_ego.sh" >&2
@@ -32,7 +31,7 @@ for a in "$@"; do
 done
 if [ "$WANT_STEREO" = "1" ]; then
   echo "[09] 确保 GS130W mipi dual（例程8 ensure）…"
-  bash /app/zettatree_demo/08_depth_camera/ensure_mipi_bpu.sh || true
+  bash /app/zettatree_demo/08_depth_camera/ensure_mipi_bpu.sh
 fi
 
 echo "[09] 完整 C++ EGO-Planner + Stereonet；OpenCV 深彩|三维；默认开 RViz"

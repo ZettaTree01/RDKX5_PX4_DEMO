@@ -25,7 +25,10 @@ def _make_info(width, height, fx, fy, cx, cy, frame_id, baseline=0.0, is_right=F
     msg.r = [1.0, 0.0, 0.0,
              0.0, 1.0, 0.0,
              0.0, 0.0, 1.0]
-    tx = (-float(fx) * float(baseline)) if is_right else 0.0
+    # Stereonet 收到 CameraInfo 后会用 P[0,3]/fx 覆盖参数 base_line。
+    # OpenCV 右目常用 P[0,3]=-fx*B → 会得到负基线 → 深度全 0；
+    # 写成 +fx*B，使 sub base_line 为正（与节点参数一致）。
+    tx = float(fx) * float(baseline) if is_right else 0.0
     msg.p = [float(fx), 0.0, float(cx), tx,
              0.0, float(fy), float(cy), 0.0,
              0.0, 0.0, 1.0, 0.0]

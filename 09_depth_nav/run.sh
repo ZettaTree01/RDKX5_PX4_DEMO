@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 例程9：默认跑完整 C++ EGO-Planner；可用 backend:=python 退回 Python A*
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -33,7 +33,7 @@ if [ "$BACKEND" = "python" ]; then
     esac
   done
   if [ "$WANT_STEREO" = "1" ]; then
-    bash /app/zettatree_demo/08_depth_camera/ensure_mipi_bpu.sh || true
+    bash /app/zettatree_demo/08_depth_camera/ensure_mipi_bpu.sh
   fi
   ros2 launch "$SCRIPT_DIR/depth_nav.launch.py" \
     source:=stereonet start_stereo:=true ego:=true rviz:=true \

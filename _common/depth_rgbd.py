@@ -12,9 +12,16 @@ from __future__ import annotations
 
 import math
 import time
+from functools import lru_cache
 
 import cv2
 import numpy as np
+
+try:
+    from perf_utils import configure_runtime_threads
+    configure_runtime_threads()
+except Exception:
+    pass
 
 # 默认内参（640x480 量级）；订阅到 CameraInfo 后应覆盖
 DEFAULT_FX = 385.0
@@ -56,33 +63,42 @@ def colorize_depth(depth_m: np.ndarray, max_range: float = 4.0,
     return color
 
 
+@lru_cache(maxsize=32)
+def _cached_rays(h: int, w: int, stride: int,
+                 fx: float, fy: float, cx: float, cy: float):
+    """Cache normalized camera rays; avoids rebuilding meshgrid every frame."""
+    us = np.arange(0, w, stride, dtype=np.float32)
+    vs = np.arange(0, h, stride, dtype=np.float32)
+    uu, vv = np.meshgrid(us, vs, indexing='xy')
+    rx = (uu - np.float32(cx)) / np.float32(fx)
+    ry = (vv - np.float32(cy)) / np.float32(fy)
+    return rx, ry, uu.astype(np.int32), vv.astype(np.int32)
+
+
 def depth_to_points(
         depth_m: np.ndarray,
         fx=DEFAULT_FX, fy=DEFAULT_FY, cx=DEFAULT_CX, cy=DEFAULT_CY,
         stride: int = 4, min_range: float = 0.4, max_range: float = 5.0,
         color_bgr: np.ndarray | None = None):
-    """深度图反投影为相机系点云。
-
-    返回 ``(N,3)`` xyz 与可选 ``(N,3)`` uint8 BGR 颜色。
-    近距默认抬到 0.4m，抑制双目近端噪点（RViz 原点红团）。
-    """
+    """深度图反投影为相机系点云；热点路径完全 NumPy 向量化。"""
     h, w = depth_m.shape[:2]
-    us = np.arange(0, w, stride)
-    vs = np.arange(0, h, stride)
-    uu, vv = np.meshgrid(us, vs)
-    z = depth_m[vv, uu]
-    mask = (z >= min_range) & (z <= max_range) & np.isfinite(z)
+    stride = max(1, int(stride))
+    rx, ry, uu_i, vv_i = _cached_rays(
+        h, w, stride, float(fx), float(fy), float(cx), float(cy))
+    z = np.asarray(depth_m, dtype=np.float32)[::stride, ::stride]
+    mask = np.isfinite(z) & (z >= min_range) & (z <= max_range)
     if not np.any(mask):
-        return np.zeros((0, 3), np.float32), None
-    uu = uu[mask].astype(np.float32)
-    vv = vv[mask].astype(np.float32)
-    z = z[mask].astype(np.float32)
-    x = (uu - cx) * z / float(fx)
-    y = (vv - cy) * z / float(fy)
-    pts = np.stack([x, y, z], axis=1)
+        return np.zeros((0, 3), dtype=np.float32), None
+
+    zv = z[mask]
+    pts = np.empty((zv.size, 3), dtype=np.float32)
+    pts[:, 0] = rx[mask] * zv
+    pts[:, 1] = ry[mask] * zv
+    pts[:, 2] = zv
+
     cols = None
     if color_bgr is not None and color_bgr.shape[:2] == depth_m.shape[:2]:
-        cols = color_bgr[vv.astype(int), uu.astype(int)]
+        cols = np.asarray(color_bgr)[::stride, ::stride][mask]
     return pts, cols
 
 
@@ -94,20 +110,15 @@ def clean_depth_m(depth_m: np.ndarray,
     d[~np.isfinite(d)] = 0.0
     d[(d > 0) & (d < min_range)] = 0.0
     d[d > max_range] = 0.0
-    # 转成毫米 u16 便于中值/形态学
+    # 转成毫米 u16；保持一个中值 + 形态学阶段，避免每帧
+    # connectedComponentsWithStats + Python 循环带来的额外 CPU/内存开销。
     mm = np.clip(d * 1000.0, 0, 65535).astype(np.uint16)
     if np.any(mm):
         mm = cv2.medianBlur(mm, 5)
         kernel = np.ones((3, 3), np.uint8)
-        valid = (mm > 0).astype(np.uint8)
-        valid = cv2.morphologyEx(valid, cv2.MORPH_OPEN, kernel, iterations=1)
+        valid = cv2.morphologyEx(
+            (mm > 0).astype(np.uint8), cv2.MORPH_OPEN, kernel, iterations=1)
         mm[valid == 0] = 0
-        # 去掉过小连通域
-        num, labels, stats, _ = cv2.connectedComponentsWithStats(
-            (mm > 0).astype(np.uint8), connectivity=8)
-        for i in range(1, num):
-            if stats[i, cv2.CC_STAT_AREA] < 40:
-                mm[labels == i] = 0
     return mm.astype(np.float32) / 1000.0
 
 
@@ -359,7 +370,8 @@ def render_modeling_panel(
                     0.55, (235, 235, 245), 1, cv2.LINE_AA)
         cv2.arrowedLine(top, (cx_n, 38), (cx_n, 20), (210, 210, 225), 2,
                         tipLength=0.4)
-    top_label = 'TOP (N=initial heading)' if rot else 'TOP ENU pointcloud'
+    # 对齐 hobot_stereonet「3D Point」：OpenCV 俯视为主，不依赖 RViz 稠密点云
+    top_label = '3D POINT (N=heading)' if rot else '3D POINT (TOP)'
     cv2.putText(top, top_label, (8, 22),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1, cv2.LINE_AA)
     cv2.putText(top, f'points={len(pts_cam)}', (8, 46),

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 飞行例程共用启动辅助：Ctrl+C / 异常退出后强制上锁停转。
 #
 # 用法：在 02/05/06/07/08 的 run.sh 里，source env.sh 之后：

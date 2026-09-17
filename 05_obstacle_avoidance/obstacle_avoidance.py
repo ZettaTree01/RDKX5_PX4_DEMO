@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.join(
 from frame_output import FrameOutput
 from indoor import AVOID_VEL_MPS, RelAlt
 from yolo_detector import YoloDetector
+from depth_rgbd import image_msg_to_bgr
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 # 机体 FLU：+x 前、+y 左、+z 上
@@ -266,7 +267,7 @@ class ObstacleAvoidanceNode(Node):
     def image_callback(self, msg):
         self.last_image = self.get_clock().now()
         try:
-            self.latest_frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            self.latest_frame = image_msg_to_bgr(msg, self.bridge)
         except Exception as exc:
             self.get_logger().error(
                 f'图像转换失败: {exc}', throttle_duration_sec=5.0)

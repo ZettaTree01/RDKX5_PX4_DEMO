@@ -1,33 +1,52 @@
-# 02：RDK X5 机载例程源码
+# RDK X5 + PX4 机载例程
 
 面向 **多旋翼无人机 + PX4**：例程部署在 RDK X5 机载计算机 `/app/zettatree_demo`，飞行指令经 MAVROS 发给飞控。
 
-来源：`RDK_X5_AI_Tutorial.md`。ROS2 例程用 `run.sh`（会 `source` TogetheROS）。
-
-开发机改完例程源码或 README 后，运行 `python D:\gs-workspace\zettatree_demo\_sync_to_x5.py` 同步到机载 `/app/zettatree_demo`。
-同脚本还会把主教程 `RDK_X5_AI_Tutorial.md` 同步到机载 `/app/RDK_X5_AI_Tutorial.md`。
-同步脚本会跳过 `_tmp_*`、`_sync_to_x5.py`、`_update_tutorial.py` 与 `__pycache__`。
-教程正文里的嵌入源码可用 `python D:\gs-workspace\zettatree_demo\_update_tutorial.py` 从本目录回写。
+ROS2 例程用各目录 `run.sh`（会 `source` TogetheROS Humble）。视觉与深度默认走 **BPU 量化算力**（GS130W MIPI + Stereonet / YOLO `.bin`），USB 相机仅作回退。
 
 每个例程一个目录，自带 `run.sh` / launch / 配置；被多个例程复用的运行时组件统一放在 `_common/`。
+
+## 获取与部署
+
+板端：
+
+```bash
+sudo mkdir -p /app
+sudo git clone https://github.com/ZettaTree01/RDKX5_PX4_DEMO.git /app/zettatree_demo
+cd /app/zettatree_demo/00_env_check
+bash run.sh --yes
+```
+
+开发机改完代码后，用 `rsync` 或 `scp` 同步到机载 `/app/zettatree_demo`（不要同步 `.git`、`__pycache__`、`ego_ws`）。例程 10 可用 `10_target_follow/deploy_and_debug.py`，通过环境变量 `ONBOARD_HOST` / `ONBOARD_USER` / `ONBOARD_PASS` 登录板卡。
 
 ## 目录
 
 | 目录 | 文档章节 | 说明 | 硬件依赖 |
 |------|----------|------|----------|
 | `_common` | 2.7 / 3.1 / 4.3 | 共享组件：MAVROS、OFFBOARD、相机、YOLO、深度点云、室内限速 | 无 |
-| `00_env_check` | — | 环境自检 | 无 |
+| `00_env_check` | — | 环境自检与依赖安装 | 无 |
 | `01_uart_serial` | 1.2.7 | 例程1：40PIN 针脚串口（机载↔飞控）读姿态 / 拆桨电机测试 | 飞控 TELEM + 杜邦线 |
 | `02_bench_pose_sim` | 2.8 | 例程2：台架位姿模拟器（室内无 GPS、拆桨验证用） | 飞控，**拆桨** |
-| `03_camera_node` | 3.1 | 例程3：USB 摄像头发布（弹窗 / 快照查看画面） | `/dev/video0` |
-| `04_object_detection` | 3.1 | 例程4：检测节点 + 官方 YOLO（推理画面） | BPU 模型；相机可选 |
-| `05_obstacle_avoidance` | 3.2 | 例程5：摄像头识别避障（单目估距） | 摄像头 + BPU + 飞控 |
-| `06_autonomous_cruise` | 4.1 | 例程6：自主巡航拍照（巡航画面） | 飞控 + 摄像头 |
-| `07_target_tracking` | 4.2 | 例程7：停机坪 H 标对准降落 | 摄像头 + 飞控 |
-| `08_depth_camera` | 4.3 | 例程8：深度/双目点云建模（MIPI 视差或 Orbbec） | MIPI 双目或 USB3 深度相机（可 simulate） |
-| `09_depth_nav` | 4.4 | 例程9：深度相机自主导航（完整 EGO） | 深度相机 + 飞控，**拆桨** |
-| `10_target_follow` | 4.5 | 例程10：目标跟随（YOLO 行人 + EGO 动态 goal） | 深度相机 + BPU + 飞控，**拆桨** |
+| `03_camera_node` | 3.1 | 例程3：默认 GS130W MIPI 发图（USB 可回退） | MIPI 或 `/dev/video0` |
+| `04_object_detection` | 3.1 | 例程4：BPU 量化 YOLO + 官方解码 | BPU `.bin` + 相机 |
+| `05_obstacle_avoidance` | 3.2 | 例程5：BPU YOLO 识别避障 | BPU + 相机 + 飞控 |
+| `06_autonomous_cruise` | 4.1 | 例程6：自主巡航拍照（BPU YOLO 叠框） | 飞控 + MIPI/USB |
+| `07_target_tracking` | 4.2 | 例程7：停机坪 H 标对准降落 | 相机 + 飞控 |
+| `08_depth_camera` | 4.3 | 例程8：GS130W **BPU Stereonet** 深度/点云 | MIPI 双目 GS130W |
+| `09_depth_nav` | 4.4 | 例程9：深度导航（Stereonet BPU + EGO） | 深度相机 + 飞控，**拆桨** |
+| `10_target_follow` | 4.5 | 例程10：目标跟随（BPU YOLO + Stereonet） | 深度相机 + BPU + 飞控，**拆桨** |
 | `11_formation_flight` | 4.6 | 例程11：编队（一机一进程） | 多机 |
+
+## 算力约定（BPU 优先）
+
+| 能力 | 默认路径 | 回退 |
+|------|----------|------|
+| 单目预览 / 检测输入 | GS130W MIPI 左目 → `/camera/image_raw` | USB `/dev/video0` |
+| 目标检测 | Horizon BPU YOLO `.bin`（NV12） | 无模型则跳过叠框 |
+| 双目深度 / 点云 | `hobot_stereonet` 量化 Stereonet | 无 MIPI 双目则不可用 |
+| 停机坪 H | OpenCV 轮廓 + 模板（无官方量化模型） | — |
+
+例程 `01` / `02` / `11` 不含神经网络。例程 `08` 的 RViz 由 `run.sh` 在有 `DISPLAY` 时拉起，也可 `run.sh rviz` 单独打开。
 
 ## 使用约定
 
@@ -114,8 +133,24 @@ bash /app/zettatree_demo/06_autonomous_cruise/run.sh fcu_url:=/dev/ttyACM0:11520
 | `px4_pluginlists.yaml` | — | 全体飞控例程的 MAVROS 插件清单基线 | 各例程 launch 显式传入 |
 | `indoor.py` | — | 室内限速（速度 1/20；怠速→加速→最高 300 r/min） | 所有会转电机的例程 |
 | `offboard_manager.py` | 2.7 | OFFBOARD 管理器：起飞、降落上锁、设定点仲裁 | `05`–`08`、`02` |
-| `yolo_detector.py` | 3.1 / 3.2 | 共享 YOLO 推理：NV12 预处理 + DFL 解码 + NMS | `04_object_detection`、`05_obstacle_avoidance` |
-| `helipad_h.py` | 4.2 | 停机坪 H 标识别（轮廓 + H 模板） | `07_target_tracking` |
-| `camera_node.py` | 3.1 | USB 摄像头发布 `/camera/image_raw` | `03_camera_node` |
+| `yolo_detector.py` | 3.1 / 3.2 | **BPU** 量化 YOLO：NV12 + DFL + NMS | `04`/`05`/`06`/`10` |
+| `helipad_h.py` | 4.2 | 停机坪 H 标识别（轮廓 + H 模板；无官方量化模型） | `07_target_tracking` |
+| `camera_node.py` | 3.1 | USB 摄像头发布 `/camera/image_raw` | `start_vision_cam.sh` 回退 |
+| `mipi_camera_bridge.py` | 3.1 | GS130W 左目 → `/camera/image_raw` | `03`–`07` 默认 |
+| `start_vision_cam.sh` | 3.1 | MIPI 优先、USB 回退 | `03`–`07` |
 | `frame_output.py` | 3.1 | 共享画面输出器：弹窗 / 快照，无显示环境自动回退 | `camera_node`、`04/06/07` 任务节点 |
 | `cn_hud.py` | — | 中文 HUD 叠字 | `05`/`07` 等画面输出 |
+| `depth_rgbd.py` | 4.3 / 4.4 | 深度图 ↔ 点云与板端投影可视化 | `08`/`09`/`10` |
+| `ego_depth_avoid.py` | 4.4 | 简易深度避障 | `09` |
+| `ego_local_planner.py` | 4.4 | 本地规划回退 | `09`/`10` |
+| `perf_utils.py` | — | OpenCV 线程与有界队列 | 视觉节点可选 |
+
+## 仓库约定
+
+- 文本文件统一 **UTF-8 + LF**；Shell 脚本 shebang 为 `#!/usr/bin/env bash`。
+- 不提交 `_tmp_*`、`__pycache__`、日志、快照图、板端编译树。
+- **不纳入本仓库**：`mavros/` 上游源码、`09_depth_nav/ego_ws`（由 `setup_full_ego.sh` 在板端拉取编译）、BPU `.bin` 模型（使用板端 `/opt/hobot/model/`）。
+
+## 许可证
+
+MIT，见 [LICENSE](LICENSE)。

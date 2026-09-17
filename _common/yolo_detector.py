@@ -9,7 +9,8 @@ BGR 帧 → letterbox 缩放 → NV12(h*w*1.5) → hbm_runtime.run
 解码链路与官方示例对齐
 （/app/pydev_demo/02_detection_sample/03_ultralytics_yolov8）。
 
-被 04_object_detection / 05_obstacle_avoidance 共用。
+被 04/05/06/10 共用。推理必须走板端量化 .bin + hbm_runtime（BPU），
+不用 CPU ONNX/PyTorch。
 
 用法（任务节点内）：
     sys.path.insert(0, os.path.join(
@@ -29,6 +30,12 @@ import os
 
 import numpy as np
 import cv2
+
+try:
+    from perf_utils import configure_runtime_threads
+    configure_runtime_threads()
+except Exception:
+    pass
 
 try:
     import hbm_runtime
@@ -136,11 +143,13 @@ def bgr_to_nv12_planes(image):
     """BGR → NV12 的 Y / UV 平面，形状分别 (H, W) 与 (H/2, W/2, 2)。"""
     height, width = image.shape[:2]
     area = height * width
-    yuv420p = cv2.cvtColor(image, cv2.COLOR_BGR2YUV_I420).reshape((area * 3 // 2,))
+    yuv420p = cv2.cvtColor(image, cv2.COLOR_BGR2YUV_I420).reshape(-1)
     y = yuv420p[:area].reshape((height, width))
     u = yuv420p[area:area + area // 4].reshape((height // 2, width // 2))
     v = yuv420p[area + area // 4:].reshape((height // 2, width // 2))
-    uv = np.stack((u, v), axis=-1)
+    uv = np.empty((height // 2, width // 2, 2), dtype=yuv420p.dtype)
+    uv[..., 0] = u
+    uv[..., 1] = v
     return y, uv
 
 
@@ -229,10 +238,11 @@ class YoloDetector:
     """
 
     def __init__(self, score_thres=0.25, nms_thres=0.45,
-                 model_path=None, log=None):
+                 model_path=None, log=None, max_candidates=300):
         self._log = log or _PrintLog()
         self.score_thres = float(score_thres)
         self.nms_thres = float(nms_thres)
+        self.max_candidates = max(50, int(max_candidates))
 
         self.model = None
         self.model_name = None
@@ -248,7 +258,8 @@ class YoloDetector:
         self.class_names = self._load_class_names()
 
         if hbm_runtime is None:
-            self._log.error('hbm_runtime 不可用，模型未加载')
+            self._log.error(
+                'hbm_runtime 不可用，无法使用 BPU 量化模型（不要回退 CPU YOLO）')
         else:
             self._load_model(model_path or first_existing_model())
 
@@ -292,11 +303,14 @@ class YoloDetector:
             self.input_w = input_w
             self.anchor_sizes = [input_h // s for s in STRIDES]
             self.anchors = {g: gen_anchor(g) for g in self.anchor_sizes}
-            self._log.info(f'已加载模型: {model_path} ({input_w}x{input_h})')
+            self._log.info(
+                f'BPU 量化 YOLO: {model_path} ({input_w}x{input_h}) backend=hbm_runtime')
             self._log.info(f'输出张量: {output_names}')
         except Exception as e:
             self.model = None
-            self._log.error(f'模型未加载，请改用 /app/pydev_demo 官方示例: {e}')
+            self._log.error(
+                f'BPU 量化模型未加载: {e}；请安装 tros/hobot 模型或跑 '
+                '/app/pydev_demo 官方 YOLOv8 示例')
 
     def label(self, cls_id):
         if 0 <= cls_id < len(self.class_names):
@@ -345,8 +359,14 @@ class YoloDetector:
             if valid.size == 0:
                 continue
 
+            # 先 Top-K，再 DFL 解码；大幅减少低置信候选的 softmax/box 运算。
+            if valid.size > self.max_candidates:
+                top = np.argpartition(
+                    max_logits[valid], -self.max_candidates)[-self.max_candidates:]
+                valid = valid[top]
+            scores_i = sigmoid(max_logits[valid])
             all_ids.append(np.argmax(cls_logits[valid], axis=1))
-            all_scores.append(sigmoid(max_logits[valid]))
+            all_scores.append(scores_i)
             all_boxes.append(
                 self._decode_boxes(fp32_outputs[box_key], valid,
                                    self.anchor_sizes[i], stride))

@@ -23,6 +23,7 @@ def generate_launch_description():
     altitude = LaunchConfiguration('altitude')
     bench = LaunchConfiguration('bench')
     device = LaunchConfiguration('device')
+    camera_source = LaunchConfiguration('camera_source')
     show = LaunchConfiguration('show')
 
     mavros = IncludeLaunchDescription(
@@ -64,10 +65,20 @@ def generate_launch_description():
         condition=IfCondition(bench),
     )
 
+    vision_cam = ExecuteProcess(
+        cmd=[
+            'bash', os.path.join(COMMON, 'start_vision_cam.sh'),
+            '--source', camera_source,
+            '--device', device,
+            '--no-show',
+        ],
+        output='screen',
+        name='vision_cam',
+    )
+
     task = ExecuteProcess(
         cmd=[
             'python3', os.path.join(SCRIPT_DIR, 'autonomous_cruise.py'),
-            '--device', device,
             PythonExpression([
                 "'--show' if '", show, "'.lower() == 'true' else '--no-show'"]),
         ],
@@ -89,13 +100,17 @@ def generate_launch_description():
             'bench', default_value='true',
             description='true 拉起台架位姿模拟并写 EKF 外部视觉参数（室内无 GPS）'),
         DeclareLaunchArgument(
-            'device', default_value='auto',
-            description='抓拍用摄像头；auto 表示自动探测能出图的 /dev/video*'),
+            'camera_source', default_value='auto',
+            description='auto=GS130W MIPI 优先（BPU YOLO 前置）；usb=USB 摄像头'),
+        DeclareLaunchArgument(
+            'device', default_value='/dev/video0',
+            description='USB 回退设备；auto 时仍先尝试 MIPI'),
         DeclareLaunchArgument(
             'show', default_value='true',
             description='巡航画面输出（弹窗/快照，无显示环境自动回退）'),
         mavros,
         manager,
+        vision_cam,
         task,
         TimerAction(period=1.0, actions=[simulator]),
     ])

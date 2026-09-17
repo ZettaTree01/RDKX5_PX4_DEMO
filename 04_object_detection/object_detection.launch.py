@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""04 目标检测：拉起相机节点与检测节点。"""
+"""04 目标检测：MIPI（默认）或 USB 相机 + BPU 量化 YOLO。"""
 import os
 
 from launch import LaunchDescription
@@ -12,6 +12,7 @@ SCRIPT_DIR = os.path.join(DEMO_ROOT, '04_object_detection')
 
 
 def generate_launch_description():
+    camera_source = LaunchConfiguration('camera_source')
     camera_device = LaunchConfiguration('camera_device')
     show = LaunchConfiguration('show')
     score_thres = LaunchConfiguration('score_thres')
@@ -19,12 +20,13 @@ def generate_launch_description():
 
     camera_node = ExecuteProcess(
         cmd=[
-            'python3', os.path.join(COMMON, 'camera_node.py'),
+            'bash', os.path.join(COMMON, 'start_vision_cam.sh'),
+            '--source', camera_source,
             '--device', camera_device,
             '--no-show',
         ],
         output='screen',
-        name='camera_node',
+        name='vision_cam',
     )
 
     detection = ExecuteProcess(
@@ -41,8 +43,11 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument(
+            'camera_source', default_value='auto',
+            description='auto=GS130W MIPI 优先（BPU 前置）；usb=OpenCV VideoCapture'),
+        DeclareLaunchArgument(
             'camera_device', default_value='/dev/video0',
-            description='摄像头设备'),
+            description='USB 回退设备'),
         DeclareLaunchArgument(
             'show', default_value='true',
             description='推理画面输出（弹窗/快照，无显示环境自动回退）'),

@@ -80,7 +80,8 @@ class DepthPointCloudNode(Node):
                  snapshot_period=5.0, stride=4, max_range=5.0,
                  baseline_m=0.07917, stereo_layout='tb', stereo_max_width=320,
                  rotate_cw=90, panel_mode='depth', stereo_matcher='bm',
-                 stereo_period=1.0, min_range=0.4, opencv_fallback=False):
+                 stereo_period=1.0, min_range=0.4, opencv_fallback=False,
+                 map_enable=False, publish_filtered_cloud=True, publish_hz=4.0):
         super().__init__('depth_pointcloud')
         self.bridge = CvBridge()
         self.source = source
@@ -94,6 +95,9 @@ class DepthPointCloudNode(Node):
         self.panel_mode = (panel_mode or 'depth').lower()
         self.stereo_matcher = (stereo_matcher or 'bm').lower()
         self.opencv_fallback = bool(opencv_fallback)
+        self.map_enable = bool(map_enable)
+        self.publish_filtered_cloud = bool(publish_filtered_cloud)
+        self.publish_hz = max(0.5, float(publish_hz))
         self.fx = DEFAULT_FX
         self.fy = DEFAULT_FY
         self.cx = DEFAULT_CX
@@ -103,12 +107,13 @@ class DepthPointCloudNode(Node):
         self._combine_bgr = None
         self._combine_stamp = 0.0
         self._last_proc = 0.0
-        self._pub_min_dt = 0.05
+        self._pub_min_dt = 1.0 / self.publish_hz
         self._sim = DepthSourceClock()
         self._busy = False
         self._depth_ema = None
         self._last_pts = None
         self._stereo_official = False
+        self._stereo_depth_ok = False
         self._stereo_visual_ok = False
         self._stereo_points_ok = False
         # 官方 Stereonet 已按 mipi rotation/GDC 出图；stereonet 路径不做二次旋转
@@ -117,13 +122,17 @@ class DepthPointCloudNode(Node):
         self.cloud_pub = self.create_publisher(
             PointCloud2, '/drone/depth/points', _QOS_STEREO_DEPTH)
         self.depth_viz_pub = self.create_publisher(
-            Image, '/drone/depth/image', _QOS_STEREO_DEPTH)
+            Image, '/drone/depth/image_color', _QOS_STEREO_DEPTH)
+        self.depth_raw_pub = self.create_publisher(
+            Image, '/drone/depth/image_raw', _QOS_STEREO_DEPTH)
         self.map_pub = self.create_publisher(
             PointCloud2, '/drone/map/points', _QOS_STEREO_DEPTH)
         self._last_visual = None
+        self._last_depth_msg = None
         self._map_pts = np.zeros((0, 3), dtype=np.float32)
         self._map_voxel = 0.05
         self._map_max = 10000
+        self._map_voxels = {}
         self._last_panel = 0.0
 
         self.out = FrameOutput(
@@ -165,10 +174,13 @@ class DepthPointCloudNode(Node):
             points_topic = preset['points']
             self._stereo_official = True
             self.create_subscription(
+                Image, preset['depth'], self._on_stereo_depth, _QOS_STEREO_DEPTH)
+            self.create_subscription(
                 Image, visual_topic, self._on_stereo_visual, _QOS_STEREO_DEPTH)
             self.create_subscription(
                 PointCloud2, points_topic, self._on_stereo_points, _QOS_STEREO_DEPTH)
             self.create_timer(0.2, self._tick_stereo_official_wait)
+            self._stereo_depth_ok = False
             self._stereo_visual_ok = False
             self._stereo_points_ok = False
             self._wait_t0 = time.monotonic()
@@ -192,6 +204,15 @@ class DepthPointCloudNode(Node):
             self.get_logger().info(
                 f'数据源={source} depth={depth_topic} color={color_topic}')
 
+    def _on_stereo_depth(self, msg: Image):
+        """官方原始深度（通常 mono16/mm）原样转发，保留原始时间戳。"""
+        self._stereo_depth_ok = True
+        self._last_depth_msg = msg
+        try:
+            self.depth_raw_pub.publish(msg)
+        except Exception:
+            pass
+
     def _on_stereo_visual(self, msg: Image):
         """官方深彩 → 左栏；转发 /drone/depth/image。"""
         self._stereo_visual_ok = True
@@ -212,27 +233,34 @@ class DepthPointCloudNode(Node):
                 f'官方深彩显示失败: {exc}', throttle_duration_sec=2.0)
 
     def _on_stereo_points(self, msg: PointCloud2):
-        """官方彩色点云 → 抽稀（俯视/地图）；RViz 直接订官方话题，不依赖本转发。"""
+        """官方彩色点云。RViz 直接订官方话题；仅在需要时做轻量处理。"""
         self._stereo_points_ok = True
+        if not self.publish_filtered_cloud and not self.map_enable and not self.out.enabled():
+            return
         now = time.monotonic()
-        if now - getattr(self, '_last_pts_pub', 0.0) < 0.25:
+        if now - getattr(self, '_last_pts_pub', 0.0) < self._pub_min_dt:
             return
         self._last_pts_pub = now
         try:
+            # depth 模式只显示深彩图，不再为无用的 3D panel 做 PointCloud2→numpy 转换。
+            need_xyz = self.map_enable or self.out.enabled() and self.panel_mode != 'depth'
+            if not need_xyz:
+                return
             out = self._downsample_cloud_xyz(msg, max_points=6000)
-            self.cloud_pub.publish(out)
+            if self.publish_filtered_cloud:
+                self.cloud_pub.publish(out)
             pts = self._xyz_array_from_cloud(out)
-            if pts.size:
+            if self.map_enable and pts.size:
                 self._update_map(pts)
                 map_msg = points_to_cloud2_xyz(
                     self._map_pts, stamp=msg.header.stamp,
                     frame_id=msg.header.frame_id or 'camera_link')
                 self.map_pub.publish(map_msg)
+            if self.out.enabled():
+                self._show_depth_map_panel()
             self.get_logger().info(
-                f'points {msg.width}->{out.width}, map={self._map_pts.shape[0]} '
-                f'(RViz: /StereoNetNode/stereonet_pointcloud2)',
-                throttle_duration_sec=3.0)
-            self._show_depth_map_panel()
+                f'official points {msg.width * max(1, msg.height)}->{out.width}, '
+                f'map={self._map_pts.shape[0]}', throttle_duration_sec=3.0)
         except Exception as exc:
             self.get_logger().warn(
                 f'点云/地图失败: {exc}', throttle_duration_sec=2.0)
@@ -260,32 +288,29 @@ class DepthPointCloudNode(Node):
         pts = pts[m]
         if pts.size == 0:
             return
+
         inv = 1.0 / self._map_voxel
         keys = np.floor(pts * inv).astype(np.int32)
-        keys = keys - keys.min(axis=0, keepdims=True)
-        span = keys.max(axis=0) + 1
-        flat = (keys[:, 0].astype(np.int64)
-                + keys[:, 1].astype(np.int64) * int(span[0])
-                + keys[:, 2].astype(np.int64) * int(span[0] * span[1]))
-        _, idx = np.unique(flat, return_index=True)
-        frame = pts[idx]
-        if self._map_pts.size:
-            merged = np.vstack((self._map_pts, frame))
-            keys2 = np.floor(merged * inv).astype(np.int32)
-            keys2 = keys2 - keys2.min(axis=0, keepdims=True)
-            span2 = keys2.max(axis=0) + 1
-            flat2 = (keys2[:, 0].astype(np.int64)
-                     + keys2[:, 1].astype(np.int64) * int(span2[0])
-                     + keys2[:, 2].astype(np.int64) * int(span2[0] * span2[1]))
-            _, idx2 = np.unique(flat2, return_index=True)
-            out = merged[idx2]
+        # 一个体素只保留一个代表点；避免每帧 vstack + unique 整张历史地图。
+        uniq, idx = np.unique(keys, axis=0, return_index=True)
+        for k, p in zip(uniq, pts[idx]):
+            self._map_voxels[(int(k[0]), int(k[1]), int(k[2]))] = p
+
+        if len(self._map_voxels) > self._map_max:
+            # 地图超过上限时按距离保留最近体素，避免无限增长。
+            keys_list = list(self._map_voxels.keys())
+            vals = np.asarray([self._map_voxels[k] for k in keys_list], dtype=np.float32)
+            d2 = np.sum(vals * vals, axis=1)
+            keep = np.argpartition(d2, self._map_max - 1)[:self._map_max]
+            self._map_voxels = {
+                keys_list[int(i)]: vals[int(i)] for i in keep
+            }
+
+        if self._map_voxels:
+            self._map_pts = np.asarray(
+                list(self._map_voxels.values()), dtype=np.float32)
         else:
-            out = frame
-        if out.shape[0] > self._map_max:
-            d2 = out[:, 0] ** 2 + out[:, 1] ** 2 + out[:, 2] ** 2
-            keep = np.argpartition(d2, self._map_max)[: self._map_max]
-            out = out[keep]
-        self._map_pts = out
+            self._map_pts = np.zeros((0, 3), dtype=np.float32)
 
     def _show_depth_map_panel(self):
         """OpenCV 双栏：深彩 | 三维俯视（相机系 x 右、z 前）。"""
@@ -351,9 +376,11 @@ class DepthPointCloudNode(Node):
         return out
 
     def _tick_stereo_official_wait(self):
-        if self._stereo_visual_ok and self._stereo_points_ok:
+        if self._stereo_depth_ok and self._stereo_visual_ok and self._stereo_points_ok:
             return
         miss = []
+        if not self._stereo_depth_ok:
+            miss.append('depth')
         if not self._stereo_visual_ok:
             miss.append('visual')
         if not self._stereo_points_ok:
@@ -369,7 +396,8 @@ class DepthPointCloudNode(Node):
             self.fy = float(msg.k[4])
             self.cx = float(msg.k[2])
             self.cy = float(msg.k[5])
-        # 右目 P[3]≈-fx*baseline（米*fx）时尝试推基线
+        # CPU 立体匹配用 |P[0,3]|/fx 推基线。注意：hobot_stereonet 要求右目
+        # P[0,3]=+fx*B（正号）；OpenCV 常见 -fx*B 会让 Stereonet 深度全 0。
         try:
             p3 = float(msg.p[3])
             if abs(p3) > 1.0 and self.fx > 1.0:
@@ -569,9 +597,7 @@ class DepthPointCloudNode(Node):
         if self._combine_bgr is None:
             self._waiting(
                 'waiting MIPI stereo /image_combine_raw\n'
-                'start: ros2 run mipi_cam mipi_cam --ros-args \\\n'
-                '  -p device_mode:=dual -p out_format:=nv12 \\\n'
-                '  -p dual_combine:=2 -p framerate:=10.0')
+                'run: bash .../08_depth_camera/ensure_mipi_bpu.sh')
             return
         if time.monotonic() - self._combine_stamp > 2.0:
             self._waiting('MIPI stereo topic stalled (>2s)')
@@ -644,6 +670,14 @@ def main(args=None):
                         help='深度/彩色顺时针旋转；stereonet 官方链路请用 0')
     parser.add_argument('--opencv-fallback', action='store_true',
                         help='Stereonet 超时后回退 CPU OpenCV（会卡）')
+    parser.add_argument('--map-enable', dest='map_enable', action='store_true',
+                        help='启用点云累积地图；默认关闭，避免无位姿时错误累积')
+    parser.add_argument('--no-map-enable', dest='map_enable', action='store_false')
+    parser.set_defaults(map_enable=False)
+    parser.add_argument('--no-filtered-cloud', action='store_true',
+                        help='不发布 /drone/depth/points（RViz 推荐直接订官方点云）')
+    parser.add_argument('--publish-hz', type=float, default=4.0,
+                        help='处理/转发点云最高频率，默认 4Hz')
     parsed, ros_args = parser.parse_known_args(args)
     show = parsed.show and not parsed.no_show
 
@@ -668,6 +702,9 @@ def main(args=None):
         stereo_matcher=parsed.stereo_matcher,
         stereo_period=parsed.stereo_period,
         opencv_fallback=parsed.opencv_fallback,
+        map_enable=parsed.map_enable,
+        publish_filtered_cloud=not parsed.no_filtered_cloud,
+        publish_hz=parsed.publish_hz,
     )
     try:
         rclpy.spin(node)

@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..', '_common'))
 from frame_output import FrameOutput
 from yolo_detector import YoloDetector
+from depth_rgbd import image_msg_to_bgr
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
@@ -61,7 +62,11 @@ class DroneDetectionNode(Node):
         self.get_logger().info('无人机检测节点已启动')
 
     def image_callback(self, msg):
-        frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+        try:
+            frame = image_msg_to_bgr(msg, self.bridge)
+        except Exception as exc:
+            self.get_logger().warn(f'图像解码失败: {exc}', throttle_duration_sec=2.0)
+            return
         if not self.detector.loaded:
             self._output(frame, [], 'model not loaded (raw frame)')
             return

@@ -25,6 +25,13 @@ bash run.sh arm:=true show:=false snapshot:=/tmp/tf10.jpg
 
 文档 4.5。在例程 9（Stereonet + EGO）上深化：**无人机跟随人的移动而移动**。
 
+Stereonet / MIPI 深度全 0 等排障见 [`08_depth_camera/README.md`](../08_depth_camera/README.md)。单独验证双目：
+
+```bash
+bash /app/zettatree_demo/08_depth_camera/run.sh
+# 或 bash .../08_depth_camera/run.sh views
+```
+
 技术栈对齐 [Fast-Planner](https://github.com/SnapDragonfly/Fast-Planner) / [EGO-Planner](https://github.com/ZJU-FAST-Lab/ego-planner)：
 
 ```
@@ -97,7 +104,7 @@ python deploy_and_debug.py --check-only # 不上传，仅远程自检
 | `min_score` | `0.25` | YOLO person 置信度阈值（与例程 04 同默认） |
 | `show` | `true` | OpenCV HUD 窗口；无 DISPLAY 自动改写快照 |
 | `snapshot` | 空 | headless 快照 JPEG 路径（`show:=false` 时取证用） |
-| `rviz` | `true` | RViz（无 DISPLAY 自动跳过） |
+| `rviz` | `false` | RViz（无稠密 stereonet 点云；默认关） |
 
 ## 🔌 话题说明
 
@@ -147,6 +154,7 @@ python deploy_and_debug.py --check-only # 不上传，仅远程自检
 | 一直「搜索行人」但画面正常 | 已修复：`origin_left_image` 是 NV12 编码，须用 `image_msg_to_bgr` 解码（直接 `cv_bridge` 转 bgr8 会静默失败，YOLO 拿不到帧） |
 | 目标短暂丢失就停 | 正常：1 s 记忆保持，超时回「搜索行人…」悬停 |
 | HUD 无窗口（SSH） | 正常：无 DISPLAY 自动写快照 `/tmp/target_follow_snapshot.jpg`，或显式 `snapshot:=` |
+| Stereonet 深度全 0 / 无深度 | 见例程 8 README：`postprocess=v2.3`、`uncertainty_th=-0.09`、右目 `P[0,3]=+fx·B`；先 `bash .../08_depth_camera/run.sh` 验证 |
 | Stereonet 日志报 `top is not left image` | 偶发 mipi 帧序告警，深度仍以 15 fps 发布，不影响跟随 |
 
 ## 🔍 故障排除
@@ -170,5 +178,24 @@ ros2 topic echo /drone/follow/target     # 行人 3D 位置
 
 ## 🚀 开发机侧部署
 
-例程目录下的 `deploy_and_debug.py` 从开发机一键完成（详见上文脚本说明）；
-整个 `zettatree_demo` 仓库的同步用根目录 `_sync_to_x5.py`。
+例程目录下的 `deploy_and_debug.py` 从开发机一键完成（详见上文脚本说明）。
+登录信息用环境变量传入，不要把板卡密码写进仓库：
+
+```bash
+export ONBOARD_HOST=<X5_IP>
+export ONBOARD_USER=sunrise
+export ONBOARD_PASS=<password>
+python 10_target_follow/deploy_and_debug.py --check-only
+```
+
+Windows PowerShell：
+
+```powershell
+$env:ONBOARD_HOST="<X5_IP>"
+$env:ONBOARD_USER="sunrise"
+$env:ONBOARD_PASS="<password>"
+python 10_target_follow/deploy_and_debug.py --check-only
+```
+
+其余例程把本仓库同步到机载 `/app/zettatree_demo` 即可（`rsync` / `scp` / `git clone`）。
+

@@ -2,74 +2,182 @@
 # GS130W + hobot_stereonet（BPU DStereo V2.4 int16）
 # 深彩：/StereoNetNode/stereonet_visual
 # 点云：/StereoNetNode/stereonet_pointcloud2
-# 参考官方：
-#   ros2 launch hobot_stereonet stereonet_model_web_visual_v2.4_int16.launch.py \
-#     mipi_image_width:=640 mipi_image_height:=352 mipi_lpwm_enable:=True \
-#     mipi_image_framerate:=30.0 mipi_rotation:=90.0 need_rectify:=False ...
-# 标定：SC132gs_dual_calibration.yaml，基线约 0.0792 m（模组标称 80 mm）
+#
+# 注意：
+# 1) 部分 TROS 包 render_type 为 int，部分为 string；经 LaunchConfiguration
+#    一律变字符串易崩溃 → 用 params YAML + ros2 run。
+# 2) 本包参数名是 base_line（不是 baseline）；need_rectify 默认 true 会读
+#    ./config/stereo.yaml，找不到则深度全坏 → 必须显式 need_rectify:=false，
+#    并用 camera_fx/fy/cx/cy + base_line。
+# 3) DStereoV2.4_int16 官方 launch 强制 postprocess:=v2.3；默认 v1/v2
+#    会把视差解错 → 深度全 0。
+# 4) uncertainty_th 官方默认 -0.09（负数）；误写成正数会滤掉几乎全部点。
+# 5) mipi 会挂空的 /image_*_raw/camera_info；不要误用。统一订我们发布的
+#    /drone/stereo/*/camera_info。
 set -e
 # shellcheck disable=SC1091
 source /opt/tros/humble/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 if [ ! -w /userdata/.roslog ] 2>/dev/null; then
-  echo sunrise | sudo -S mkdir -p /userdata/.roslog >/dev/null 2>&1 || true
-  echo sunrise | sudo -S chown -R "$(id -un):$(id -gn)" /userdata/.roslog >/dev/null 2>&1 || true
-  echo sunrise | sudo -S chmod 777 /userdata/.roslog >/dev/null 2>&1 || true
+  sudo -n mkdir -p /userdata/.roslog >/dev/null 2>&1 || true
+  sudo -n chown -R "$(id -un):$(id -gn)" /userdata/.roslog >/dev/null 2>&1 || true
+  sudo -n chmod 777 /userdata/.roslog >/dev/null 2>&1 || true
 fi
 export ROS_LOG_DIR=/userdata/.roslog
 mkdir -p "$ROS_LOG_DIR"
 
-MODEL="${STEREO_MODEL:-/opt/tros/humble/share/hobot_stereonet/config/DStereoV2.4_int16.bin}"
-# SC132gs 标定 fx≈fy（方像素）。切勿按高宽比分别缩放 fy，否则点云呈扇形失真。
-# 1280→640 等比：fx=fy≈328.4；主点取 640x352 图像中心附近。
+MODEL="${STEREO_MODEL:-}"
+if [ -z "$MODEL" ]; then
+  for p in \
+    /opt/tros/humble/share/hobot_stereonet/config/DStereoV2.4_int16.bin \
+    /opt/tros/humble/share/hobot_stereonet/model/DStereoV2.4_int16.bin \
+    /opt/tros/humble/share/hobot_stereonet/model/x5/DStereoV2.4_int16.bin
+  do
+    if [ -f "$p" ]; then MODEL="$p"; break; fi
+  done
+fi
+if [ -z "$MODEL" ] || [ ! -f "$MODEL" ]; then
+  echo "[GS130W stereonet] ERROR: 找不到 DStereoV2.4_int16.bin" >&2
+  echo "  请安装 tros-humble-hobot-stereonet 或设置 STEREO_MODEL=绝对路径" >&2
+  exit 1
+fi
+
 FX="${CAMERA_FX:-328.379}"
 FY="${CAMERA_FY:-328.379}"
 CX="${CAMERA_CX:-320.0}"
 CY="${CAMERA_CY:-176.0}"
 BASELINE_M="${BASELINE_M:-0.07917}"
-
-# 优先用 mipi 自带 camera_info；没有数据时由 pub_stereo_caminfo 补
+# 1=上下拼接（mipi dual_combine=2 → 640x704）；0=左右拼接
+COMBINE_MODE="${STEREO_COMBINE_MODE:-1}"
 RIGHT_INFO="${CAMERA_INFO_TOPIC:-/drone/stereo/right/camera_info}"
 LEFT_INFO="${LEFT_CAMERA_INFO_TOPIC:-/drone/stereo/left/camera_info}"
-if timeout 2 ros2 topic echo /image_combine_raw/right/camera_info --once >/dev/null 2>&1; then
-  RIGHT_INFO=/image_combine_raw/right/camera_info
-  LEFT_INFO=/image_combine_raw/left/camera_info
-  echo "[GS130W stereonet] use mipi camera_info topics"
+
+# 仅当用户强制指定时才改；默认始终用 pub_stereo_caminfo 的话题
+if [ -n "${CAMERA_INFO_TOPIC:-}" ]; then
+  RIGHT_INFO="$CAMERA_INFO_TOPIC"
+fi
+if [ -n "${LEFT_CAMERA_INFO_TOPIC:-}" ]; then
+  LEFT_INFO="$LEFT_CAMERA_INFO_TOPIC"
 fi
 
-echo "[GS130W stereonet] model=$MODEL"
-echo "[GS130W stereonet] fx=$FX fy=$FY cx=$CX cy=$CY bl=${BASELINE_M}m"
-echo "[GS130W stereonet] pointcloud_downsample_step=1 (max for 640x352)"
+# 节点会读相对路径 ./config/stereo.yaml；固定 cwd 避免启动目录干扰
+RUN_DIR="${STEREO_RUN_DIR:-/userdata/stereonet_run}"
+mkdir -p "$RUN_DIR/config"
+CALIB_ABS="/opt/tros/humble/share/hobot_stereonet/config/stereo.yaml"
+if [ -f "$CALIB_ABS" ]; then
+  cp -n "$CALIB_ABS" "$RUN_DIR/config/stereo.yaml" 2>/dev/null || \
+    cp -f "$CALIB_ABS" "$RUN_DIR/config/stereo.yaml" 2>/dev/null || true
+fi
+cd "$RUN_DIR"
 
-exec ros2 launch hobot_stereonet stereonet_model.launch.py \
-  stereonet_model_file_path:="$MODEL" \
-  stereo_image_topic:=/image_combine_raw \
-  camera_info_topic:="$RIGHT_INFO" \
-  left_camera_info_topic:="$LEFT_INFO" \
-  calib_method:=none \
-  camera_fx:="$FX" \
-  camera_fy:="$FY" \
-  camera_cx:="$CX" \
-  camera_cy:="$CY" \
-  baseline:="$BASELINE_M" \
-  stereonet_frame_id:=camera_link \
-  publish_pcd_enabled:=True \
-  publish_origin_enable:=True \
-  publish_visual_enabled:=True \
-  publish_rectify_bgr:=False \
-  pointcloud_downsample_step:=1 \
-  pointcloud_height_min:=-10.0 \
-  pointcloud_height_max:=10.0 \
-  pointcloud_depth_max:=5.0 \
-  render_type:=indoor \
-  render_perf:=False \
-  uncertainty_th:=-0.10 \
-  save_result_flag:=False \
-  save_stereo_flag:=False \
-  save_disp_flag:=False \
-  save_depth_flag:=False \
-  save_visual_flag:=False \
-  save_pcd_flag:=False \
-  save_origin_flag:=False \
-  log_level:=warn \
-  "$@"
+echo "[GS130W stereonet] check /image_combine_raw …"
+ok_img=0
+for _ in 1 2 3 4 5 6 7 8; do
+  if ros2 topic list 2>/dev/null | grep -qx '/image_combine_raw'; then
+    hz=$(timeout 5 ros2 topic hz /image_combine_raw --window 3 2>&1 || true)
+    if echo "$hz" | grep -Eq 'average rate:[[:space:]]*[1-9]'; then
+      ok_img=1
+      echo "[GS130W stereonet] combine live: $(echo "$hz" | grep -E 'average rate:' | head -1)"
+      break
+    fi
+    # 有话题但 hz 慢：仍允许启动（DDS 偶发）
+    ok_img=1
+    break
+  fi
+  sleep 0.5
+done
+if [ "$ok_img" != "1" ]; then
+  echo "[GS130W stereonet] WARN: 尚无 /image_combine_raw，仍启动（请先 ensure_mipi_bpu.sh）" >&2
+fi
+
+# 确保 CameraInfo 有人发（launch 通常已拉起；单独跑本脚本时补上）
+if ! pgrep -f 'pub_stereo_caminfo.py' >/dev/null 2>&1; then
+  echo "[GS130W stereonet] start pub_stereo_caminfo → ${LEFT_INFO} / ${RIGHT_INFO}"
+  nohup python3 "$SCRIPT_DIR/pub_stereo_caminfo.py" \
+    --width 640 --height 352 \
+    --fx "$FX" --fy "$FY" --cx "$CX" --cy "$CY" \
+    --baseline "$BASELINE_M" \
+    --left-topic "$LEFT_INFO" --right-topic "$RIGHT_INFO" \
+    --rate 15.0 \
+    >/tmp/stereo_caminfo.log 2>&1 &
+  sleep 1
+fi
+
+RENDER_TYPE="${RENDER_TYPE:-0}"
+PC_STEP="${POINTCLOUD_DOWNSAMPLE_STEP:-2}"
+RENDER_PERF="${RENDER_PERF:-true}"
+
+# 参数文件必须写到“当前用户一定可写”的目录。
+# 旧版先尝试 /userdata/.roslog，再回退到 /userdata 和 /app 项目目录；
+# 在常见 root-owned /app 部署下最终会在 line 129 的 cat 处 Permission denied。
+# 优先 /tmp，避免因日志目录/项目目录权限导致 Stereonet 根本无法启动。
+# 参数文件必须对当前用户可写。别人（如 root 调试）留下的同名文件
+# 在 sticky /tmp 下会 Permission denied，因此默认带 UID。
+PARAMS="${STEREO_PARAMS_FILE:-/tmp/zettatree_stereonet_params_${UID}.yaml}"
+PARAMS_DIR="$(dirname "$PARAMS")"
+if ! mkdir -p "$PARAMS_DIR" 2>/dev/null || ! (touch "$PARAMS" 2>/dev/null); then
+  PARAMS="/tmp/zettatree_stereonet_params_${UID}.yaml"
+  touch "$PARAMS" 2>/dev/null || {
+    echo "[GS130W stereonet] ERROR: 无法创建参数文件: $PARAMS" >&2
+    exit 1
+  }
+fi
+if [ "${RENDER_TYPE_IS_STRING:-0}" = "1" ]; then
+  RENDER_YAML="\"${RENDER_TYPE}\""
+else
+  case "$RENDER_TYPE" in
+    ''|*[!0-9]*) RENDER_YAML="0" ;;
+    *) RENDER_YAML="$RENDER_TYPE" ;;
+  esac
+fi
+
+# 只写本包真实存在的参数名（ros2 param list /StereoNetNode）
+# DStereoV2.4：postprocess=v2.3 + uncertainty_th=-0.09；右目 CameraInfo 须 P[0,3]=+fx*B
+cat > "$PARAMS" <<EOF
+/**:
+  ros__parameters:
+    stereonet_model_file_path: "${MODEL}"
+    stereo_image_topic: "/image_combine_raw"
+    stereo_combine_mode: ${COMBINE_MODE}
+    camera_info_topic: "${RIGHT_INFO}"
+    need_rectify: false
+    load_rectify_param: false
+    stereo_calib_file_path: "${CALIB_ABS}"
+    camera_fx: ${FX}
+    camera_fy: ${FY}
+    camera_cx: ${CX}
+    camera_cy: ${CY}
+    base_line: ${BASELINE_M}
+    postprocess: "v2.3"
+    render_type: ${RENDER_YAML}
+    render_perf: ${RENDER_PERF}
+    uncertainty_th: -0.09
+    depth_need_filter: true
+    pc_max_depth: 5.0
+    height_min: -10.0
+    height_max: 10.0
+    leaf_size: 0.05
+    pointcloud_downsample_step: ${PC_STEP}
+EOF
+
+echo "[GS130W stereonet] model=$MODEL cwd=$RUN_DIR"
+echo "[GS130W stereonet] fx=$FX fy=$FY cx=$CX cy=$CY base_line=${BASELINE_M}m combine_mode=$COMBINE_MODE"
+echo "[GS130W stereonet] camera_info=$RIGHT_INFO need_rectify=false postprocess=v2.3 uncertainty_th=-0.09"
+echo "[GS130W stereonet] render_type=$RENDER_YAML leaf_size/downsample~ step env=$PC_STEP"
+echo "[GS130W stereonet] params=$PARAMS"
+
+extra=()
+for a in "$@"; do
+  case "$a" in
+    *=*) extra+=(--ros-args -p "$a") ;;
+    *) extra+=("$a") ;;
+  esac
+done
+
+exec ros2 run hobot_stereonet stereonet_model_node --ros-args \
+  --log-level warn \
+  -r __node:=StereoNetNode \
+  --params-file "$PARAMS" \
+  "${extra[@]}"

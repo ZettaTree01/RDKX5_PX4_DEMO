@@ -48,7 +48,7 @@ def generate_launch_description():
 
     tip = LogInfo(msg=[
         '例程9：完整 C++ EGO-Planner + Stereonet。',
-        ' OpenCV=深彩|三维；RViz=点云+grid_map+B样条路径。',
+        ' OpenCV=深彩|3D POINT 俯视；RViz=OccViz+路径(不订稠密彩色点云)。',
         ' 需先 bash setup_full_ego.sh。arm:=false 监视；拆桨后 arm:=true。',
     ])
 
@@ -326,7 +326,7 @@ def generate_launch_description():
         DeclareLaunchArgument('show', default_value='true'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='RViz2：彩色点云 + grid_map + EGO Marker'),
+            description='RViz2：OccViz/grid_map/Marker（不含 stereonet 稠密点云）'),
         DeclareLaunchArgument('max_vel', default_value=INDOOR_MAX_VEL),
         DeclareLaunchArgument('safe_distance', default_value='1.2'),
         DeclareLaunchArgument('stop_distance', default_value='0.45'),

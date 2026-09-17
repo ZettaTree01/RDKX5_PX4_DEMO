@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 板端官方 YOLOv8 图片推理（可独立验证 BPU，不依赖 ROS/飞控）
 set -e
 cd /app/pydev_demo/02_detection_sample/03_ultralytics_yolov8

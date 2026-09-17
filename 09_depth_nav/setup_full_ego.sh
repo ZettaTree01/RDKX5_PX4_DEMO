@@ -21,7 +21,6 @@ else
   exit 1
 fi
 
-export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 
 echo "[ego] 安装依赖…"
 sudo apt-get update -qq || true

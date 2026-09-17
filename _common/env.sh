@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 统一加载板端 ROS2 / TogetheROS 环境
 # TROS setup.bash 会访问未定义变量；若调用方开了 set -u，先临时关闭。
 _ament_nounset=0
@@ -20,3 +20,14 @@ unset _ament_nounset
 # 避免默认/被 stereonet 改写到 /userdata/.roslog（常无写权限）
 export ROS_LOG_DIR="${ROS_LOG_DIR:-/tmp/zettatree_roslog}"
 mkdir -p "$ROS_LOG_DIR" 2>/dev/null || true
+
+# 动态选择实际存在且可加载的 RMW，绝不硬编码 CycloneDDS。
+if [ -z "${RMW_IMPLEMENTATION:-}" ]; then
+  if ldconfig -p 2>/dev/null | grep -q 'librmw_cyclonedds_cpp.so'; then
+    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+  elif ldconfig -p 2>/dev/null | grep -q 'librmw_fastrtps_cpp.so'; then
+    export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+  else
+    unset RMW_IMPLEMENTATION
+  fi
+fi

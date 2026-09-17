@@ -319,11 +319,13 @@ def generate_launch_description():
         DeclareLaunchArgument('bench', default_value='true'),
         DeclareLaunchArgument('source', default_value='stereonet'),
         DeclareLaunchArgument('start_stereo', default_value='true'),
-        DeclareLaunchArgument('show', default_value='true'),
+        DeclareLaunchArgument('show', default_value='false'),
         DeclareLaunchArgument(
             'planner', default_value='ego',
             description='ego=完整EGO(/move_base_simple/goal)；direct=位置直跟'),
-        DeclareLaunchArgument('rviz', default_value='true'),
+        DeclareLaunchArgument(
+            'rviz', default_value='false',
+            description='默认 false；RViz 不含 stereonet 稠密点云，仅目标/路径'),
         DeclareLaunchArgument('standoff', default_value='0.8'),
         DeclareLaunchArgument('follow_z', default_value=INDOOR_ALT),
         DeclareLaunchArgument('max_vel', default_value=INDOOR_MAX_VEL),

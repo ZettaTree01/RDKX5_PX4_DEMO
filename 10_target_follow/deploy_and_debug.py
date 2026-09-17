@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """例程10：自动部署与远程调试（从开发机运行，Windows/Linux 均可）。
 
+环境变量（必填 ONBOARD_HOST / ONBOARD_PASS）：
+    ONBOARD_HOST   板卡 IP
+    ONBOARD_USER   默认 sunrise
+    ONBOARD_PASS   SSH 密码
+
 用法：
     python deploy_and_debug.py              # 同步例程10 → 远程自检
     python deploy_and_debug.py --bench      # 同步 + 台架实跑 25 秒并抓日志
@@ -20,9 +25,9 @@ import time
 
 import paramiko
 
-HOST = os.environ.get("ONBOARD_HOST", "192.168.101.168")
+HOST = os.environ.get("ONBOARD_HOST")
 USER = os.environ.get("ONBOARD_USER", "sunrise")
-PASSWORD = os.environ.get("ONBOARD_PASS", "sunrise")
+PASSWORD = os.environ.get("ONBOARD_PASS")
 
 LOCAL_DIR = os.path.dirname(os.path.abspath(__file__))
 REMOTE_DIR = "/app/zettatree_demo/10_target_follow"
@@ -42,6 +47,11 @@ CHECKS = []          # (title, ok, detail)
 
 
 def connect():
+    if not HOST or PASSWORD is None:
+        sys.exit(
+            "请设置环境变量 ONBOARD_HOST 和 ONBOARD_PASS"
+            "（可选 ONBOARD_USER，默认 sunrise）"
+        )
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     c.connect(HOST, username=USER, password=PASSWORD, timeout=15)

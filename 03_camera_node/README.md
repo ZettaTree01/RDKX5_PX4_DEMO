@@ -16,6 +16,9 @@
 
 ## 画面输出
 
+`run.sh` 默认 **GS130W MIPI 左目**（板上 ISP），没有双目再回退 USB `/dev/video0`。
+强制 USB：`bash run.sh --source usb --device /dev/video0`。
+
 `run.sh` 默认带 `--show`，按当前环境自动选择输出方式：
 
 | 环境 | 行为 |

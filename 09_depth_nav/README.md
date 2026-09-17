@@ -2,7 +2,7 @@
 
 ## 例程说明
 
-文档 4.4。默认使用上游完整栈 [ZJU ego-planner-swarm `ros2_version`](https://github.com/ZJU-FAST-Lab/ego-planner-swarm/tree/ros2_version)（B 样条优化 + `traj_server`），对接 Stereonet 点云与 OFFBOARD。
+文档 **4.4**。默认使用上游完整栈 [ZJU ego-planner-swarm `ros2_version`](https://github.com/ZJU-FAST-Lab/ego-planner-swarm/tree/ros2_version)（B 样条优化 + `traj_server`），对接 Stereonet 点云与 OFFBOARD。
 
 ```
 Stereonet 点云 → world 点云 → grid_map → ego_planner_node（A*+B样条）
@@ -10,17 +10,23 @@ Stereonet 点云 → world 点云 → grid_map → ego_planner_node（A*+B样条
                                          traj_server
                                               ↓
                                     PositionCommand → offboard
-OpenCV：官方深彩（无叠加）| 三维俯视（机头朝北 N，机体标记带净空底衬）| 底部中文状态栏
-RViz2：官方彩色点云 + grid_map 占据 + optimal/a_star Marker
+OpenCV：官方深彩 | **3D POINT** 俯视 | 底部状态栏
+RViz2：OccViz / grid_map / EGO Marker（**不订** stereonet 稠密彩色点云）
 ```
 
 | 层级 | 内容 |
 |------|------|
-| OpenCV | 官方深彩（画面干净无叠加）+ 三维俯视（初始机头方向 = N 朝上，机体标记不被点云遮挡）+ 位移指示；扇区距离/阶段/位移/速度/高度在底部中文状态栏（PIL 渲染） |
-| RViz2 | 彩色点云 + **grid_map** + **EGO Marker 路径** |
+| OpenCV | 深彩 + **3D POINT** 俯视；底部中文状态栏 |
+| RViz2 | OccViz + grid_map + Marker（无稠密点云，省 CPU） |
 | 控制 | `traj_server` 位姿设定点；深度安全层过近时速度覆盖 |
 
 可选：`backend:=python` 退回板端 Python A* 同构实现（教学对照）。
+
+深度相机侧复用例程 8 的 `ensure_mipi_bpu.sh` / `pub_stereo_caminfo.py` / `start_stereonet.sh`（参数已按 DStereoV2.4 固化）。排障与「深度全 0」见 [`08_depth_camera/README.md`](../08_depth_camera/README.md)。单独验证双目可先：
+
+```bash
+bash /app/zettatree_demo/08_depth_camera/run.sh          # 或 views / rviz:=false
+```
 
 ## 板端编译（首次）
 
@@ -62,25 +68,31 @@ bash /app/zettatree_demo/09_depth_nav/run.sh
 # 监视解锁
 bash /app/zettatree_demo/09_depth_nav/run.sh arm:=true
 
-# 已跑例程8
+# 已跑例程8（不再拉 Stereonet）
 bash /app/zettatree_demo/09_depth_nav/run.sh arm:=true start_stereo:=false
 
 # 退回 Python A*（对照）
 bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 ```
 
+> `source:=stereonet` 时 `ensure_mipi_bpu.sh` **失败即退出**（不再 `|| true`），避免无图仍启动规划。
+
 ## RViz2（完整 EGO）
 
 | Display | Topic |
 |---------|-------|
-| StereoColorCloud | `/StereoNetNode/stereonet_pointcloud2` |
+| OccViz | `/drone/ego/occ_viz` |
 | GridMapOccupancy | `/grid_map/occupancy` |
 | GridMapInflate | `/grid_map/occupancy_inflate` |
 | OptimalBspline | `/optimal_list` |
 | AStarList | `/a_star_list` |
 | PathHistory | `/drone/nav/path_history` |
 
-Fixed Frame = **`world`**。
+Fixed Frame = **`world`**。稠密 `/StereoNetNode/stereonet_pointcloud2` 已从默认 RViz 移除；需要时另开：
+
+```bash
+bash /app/zettatree_demo/08_depth_camera/run.sh rviz
+```
 
 ## 参数
 
@@ -109,7 +121,7 @@ Fixed Frame = **`world`**。
 
 ## 依赖
 
-- 例程 8 GS130W + Stereonet
+- 例程 8 GS130W + Stereonet（`08_depth_camera/run.sh` 可单独验证）
 - [ego-planner-swarm ros2_version](https://github.com/ZJU-FAST-Lab/ego-planner-swarm/tree/ros2_version)
 - MAVROS + `offboard_manager.py`
 - `libarmadillo-dev`、PCL、Eigen（见 setup 脚本）

@@ -33,7 +33,7 @@ bash /app/zettatree_demo/04_object_detection/run.sh
 换摄像头 / 调阈值：
 
 ```bash
-bash /app/zettatree_demo/04_object_detection/run.sh camera_device:=/dev/video1
+bash /app/zettatree_demo/04_object_detection/run.sh camera_source:=usb camera_device:=/dev/video1
 bash /app/zettatree_demo/04_object_detection/run.sh score_thres:=0.4 nms_thres:=0.5
 ```
 

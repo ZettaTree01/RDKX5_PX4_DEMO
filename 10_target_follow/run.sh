@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 例程10：目标跟随。planner:=ego（默认，完整 C++ EGO 避障跟随）
 # 或 planner:=direct（直接位置跟随对照）。必须拆桨。
 set -e
@@ -25,7 +25,7 @@ for a in "$@"; do
 done
 if [ "$WANT_STEREO" = "1" ]; then
   echo "[10] 确保 GS130W mipi dual（例程8 ensure）…"
-  bash /app/zettatree_demo/08_depth_camera/ensure_mipi_bpu.sh || true
+  bash /app/zettatree_demo/08_depth_camera/ensure_mipi_bpu.sh
 fi
 
 if [ "${PLANNER,,}" = "ego" ]; then
@@ -37,8 +37,7 @@ if [ "${PLANNER,,}" = "ego" ]; then
   fi
   # shellcheck disable=SC1091
   source "$EGO_WS/install/setup.bash"
-  export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
-  if ! ros2 pkg prefix ego_planner >/dev/null 2>&1; then
+    if ! ros2 pkg prefix ego_planner >/dev/null 2>&1; then
     echo "[10] ego_planner 包不可用，请重跑 setup.sh" >&2
     exit 1
   fi

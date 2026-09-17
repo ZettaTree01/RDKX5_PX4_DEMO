@@ -46,6 +46,14 @@ def generate_launch_description():
     map_enable = LaunchConfiguration('map')
     voxel_size = LaunchConfiguration('voxel_size')
     map_accumulate = LaunchConfiguration('map_accumulate')
+    publish_tf = LaunchConfiguration('publish_tf')
+    tf_x = LaunchConfiguration('tf_x')
+    tf_y = LaunchConfiguration('tf_y')
+    tf_z = LaunchConfiguration('tf_z')
+    tf_roll = LaunchConfiguration('tf_roll')
+    tf_pitch = LaunchConfiguration('tf_pitch')
+    tf_yaw = LaunchConfiguration('tf_yaw')
+    publish_hz = LaunchConfiguration('publish_hz')
 
     env_log = SetEnvironmentVariable(name='ROS_LOG_DIR', value=ROS_LOG_DIR)
 
@@ -53,8 +61,10 @@ def generate_launch_description():
         cmd=['bash', '-lc',
              'mkdir -p /tmp/zettatree_roslog; '
              'if [ ! -w /userdata/.roslog ]; then '
-             'echo sunrise | sudo -S mkdir -p /userdata/.roslog; '
-             'echo sunrise | sudo -S chmod 777 /userdata/.roslog; fi'],
+             'mkdir -p /userdata/.roslog 2>/dev/null || true; '
+             'sudo -n mkdir -p /userdata/.roslog 2>/dev/null || true; '
+             'sudo -n chmod 777 /userdata/.roslog 2>/dev/null || true; '
+             'fi'],
         output='screen',
         name='fix_roslog_dir',
     )
@@ -139,12 +149,27 @@ def generate_launch_description():
             '--stereo-period', stereo_period,
             '--snapshot', snapshot,
             '--snapshot-period', '2.0',
+            '--publish-hz', publish_hz,
+            PythonExpression(["'--map-enable' if '", map_enable, "'.lower() == 'true' else '--no-map-enable'"]),
             PythonExpression([
                 "'--show' if '", show, "'.lower() == 'true' else '--no-show'"]),
         ],
         output='screen',
         name='depth_pointcloud',
         additional_env={'ROS_LOG_DIR': TMP_LOG_DIR},
+    )
+
+    # ④ TF：默认 base_link→camera_link 为静态变换；部署到无人机时通过参数填写实际安装位姿。
+    tf_node = ExecuteProcess(
+        cmd=[
+            'ros2', 'run', 'tf2_ros', 'static_transform_publisher',
+            '--x', tf_x, '--y', tf_y, '--z', tf_z,
+            '--roll', tf_roll, '--pitch', tf_pitch, '--yaw', tf_yaw,
+            '--frame-id', 'base_link', '--child-frame-id', 'camera_link',
+        ],
+        output='screen',
+        name='gs130w_static_tf',
+        condition=IfCondition(PythonExpression(["'", publish_tf, "'.lower() == 'true'"])),
     )
 
     # ④a 三维地图：体素(+累积)，对齐官方 voxel 思路
@@ -182,6 +207,11 @@ def generate_launch_description():
             'bash', '-lc',
             'if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then '
             'echo "[rviz] 无 DISPLAY，跳过"; exit 0; fi; '
+            'if [ ! -e /usr/lib/aarch64-linux-gnu/dri/vs-drm_dri.so ] '
+            '&& [ ! -e /usr/lib/dri/vs-drm_dri.so ]; then '
+            'export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe '
+            'MESA_GL_VERSION_OVERRIDE=3.3 MESA_GLSL_VERSION_OVERRIDE=330; '
+            'echo "[rviz] 无 vs-drm，使用软件 OpenGL (llvmpipe)"; fi; '
             f'exec rviz2 -d {SCRIPT_DIR}/depth_cloud.rviz',
         ],
         output='screen',
@@ -199,7 +229,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'show', default_value='true',
             description='OpenCV 深彩（Depth 可视化）'),
-        DeclareLaunchArgument('stride', default_value='4'),
+        DeclareLaunchArgument('stride', default_value='4',
+            description='仅内部处理点云；RViz 官方点云不受影响'),
         DeclareLaunchArgument('max_range', default_value='5.0'),
         DeclareLaunchArgument('min_range', default_value='0.3'),
         DeclareLaunchArgument('depth_topic', default_value='__default__'),
@@ -221,7 +252,7 @@ def generate_launch_description():
         DeclareLaunchArgument('snapshot', default_value='none'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='默认 true：RViz 显示官方彩色点云 /StereoNetNode/stereonet_pointcloud2'),
+            description='默认 true：RViz 订官方 stereonet_pointcloud2；省 CPU 时 rviz:=false'),
         DeclareLaunchArgument(
             'map', default_value='false',
             description='独立 pointcloud_map 节点；默认 false（已由 depth_pointcloud 内建）'),
@@ -231,6 +262,18 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'map_accumulate', default_value='true',
             description='仅 map:=true'),
+        DeclareLaunchArgument(
+            'publish_tf', default_value='true',
+            description='发布 base_link -> camera_link 静态 TF'),
+        DeclareLaunchArgument('tf_x', default_value='0.0'),
+        DeclareLaunchArgument('tf_y', default_value='0.0'),
+        DeclareLaunchArgument('tf_z', default_value='0.0'),
+        DeclareLaunchArgument('tf_roll', default_value='0.0'),
+        DeclareLaunchArgument('tf_pitch', default_value='0.0'),
+        DeclareLaunchArgument('tf_yaw', default_value='0.0'),
+        DeclareLaunchArgument(
+            'publish_hz', default_value='4.0',
+            description='OpenCV/PointCloud 转发处理频率上限'),
         DeclareLaunchArgument(
             'start_mipi', default_value='false',
             description='默认 false：由 ensure_mipi_bpu.sh 拉起'),
@@ -242,8 +285,9 @@ def generate_launch_description():
         tip,
         mipi,
         caminfo,
-        TimerAction(period=1.5, actions=[stereonet]),
-        TimerAction(period=5.0, actions=[node]),
-        TimerAction(period=6.0, actions=[map_node]),
-        TimerAction(period=7.5, actions=[rviz_node]),
+        TimerAction(period=3.0, actions=[stereonet]),
+        TimerAction(period=6.0, actions=[node]),
+        tf_node,
+        TimerAction(period=7.0, actions=[map_node]),
+        TimerAction(period=8.0, actions=[rviz_node]),
     ])

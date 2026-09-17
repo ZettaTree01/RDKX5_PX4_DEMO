@@ -35,6 +35,7 @@ sys.path.insert(0, os.path.join(
 from frame_output import FrameOutput
 from helipad_h import detect_h_mark
 from indoor import RelAlt, TRACK_VEL_MPS
+from depth_rgbd import image_msg_to_bgr
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 IMAGE_TIMEOUT = 0.5
@@ -274,7 +275,7 @@ class HelipadLandingNode(Node):
     def image_callback(self, msg):
         self.last_image = self.get_clock().now()
         try:
-            frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            frame = image_msg_to_bgr(msg, self.bridge)
         except Exception as exc:
             self.get_logger().error(
                 f'图像转换失败: {exc}', throttle_duration_sec=5.0)

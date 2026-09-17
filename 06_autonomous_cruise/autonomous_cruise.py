@@ -8,51 +8,31 @@
 ``--show`` 默认开启；无显示器时回退为周期性快照。
 """
 import argparse
-import glob
 import os
-import re
 import sys
+import time
 
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import PoseStamped
 from mavros_msgs.msg import State
+from sensor_msgs.msg import Image
 from std_msgs.msg import Bool
 import cv2
-import time
 
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..', '_common'))
 from frame_output import FrameOutput
 from indoor import CRUISE_SIDE_M, RelAlt
 from cn_hud import put_cn_lines
-
-
-def default_camera_device():
-    """按序号依次试探，返回第一个能 read 到帧的 /dev/video*。
-
-    全部试探失败时退化为 /dev/video0。
-    """
-    devs = sorted(glob.glob('/dev/video*'),
-                  key=lambda p: int(re.sub(r'\D', '', p) or 0))
-    if not devs:
-        return '/dev/video0'
-    for d in devs:
-        cap = cv2.VideoCapture(d)
-        try:
-            if cap.isOpened():
-                ok, _frame = cap.read()
-                if ok:
-                    return d
-        finally:
-            cap.release()
-    return devs[0]
+from depth_rgbd import image_msg_to_bgr
+from yolo_detector import YoloDetector
 
 
 class AutonomousCruiseNode(Node):
-    def __init__(self, device=None, show=True, snapshot=None,
-                 snapshot_period=5.0):
+    def __init__(self, show=True, snapshot=None, snapshot_period=5.0,
+                 infer_hz=5.0):
         super().__init__('autonomous_cruise')
 
         self.position_pub = self.create_publisher(
@@ -78,11 +58,19 @@ class AutonomousCruiseNode(Node):
             PoseStamped, '/mavros/local_position/pose',
             self.position_callback, qos_profile_sensor_data)
 
-        self.device = device or default_camera_device()
-        self.cap = cv2.VideoCapture(self.device)
-        if not self.cap.isOpened():
-            self.get_logger().warn(
-                f'打不开摄像头 {self.device}，到达航点时跳过拍照')
+        self._bridge = None
+        try:
+            from cv_bridge import CvBridge
+            self._bridge = CvBridge()
+        except Exception:
+            pass
+        self.frame = None
+        self.dets = []
+        self._last_infer = 0.0
+        self._infer_dt = 1.0 / max(1.0, float(infer_hz))
+        self.detector = YoloDetector(log=self.get_logger())
+        self.create_subscription(
+            Image, '/camera/image_raw', self._on_image, qos_profile_sensor_data)
 
         self.out = FrameOutput(
             self, show=show, snapshot=snapshot,
@@ -93,7 +81,9 @@ class AutonomousCruiseNode(Node):
         self.current_position = None
         self.waypoints = None
 
-        self.get_logger().info('自主巡航节点已启动')
+        self.get_logger().info(
+            f'自主巡航已启动（相机=/camera/image_raw，'
+            f'BPU YOLO={"OK" if self.detector.loaded else "未加载"}）')
 
         self.wp_idx = 0
         self.create_timer(0.05, self._tick)
@@ -130,24 +120,47 @@ class AutonomousCruiseNode(Node):
         msg.pose.orientation.w = 1.0
         self.position_pub.publish(msg)
 
-    def capture_image(self):
-        if not self.cap.isOpened():
+    def _on_image(self, msg):
+        try:
+            self.frame = image_msg_to_bgr(msg, self._bridge)
+        except Exception as exc:
+            self.get_logger().warn(f'相机解码失败: {exc}', throttle_duration_sec=2.0)
             return
-        ret, frame = self.cap.read()
-        if not ret:
+        now = time.monotonic()
+        if (self.detector.loaded and self.frame is not None
+                and now - self._last_infer >= self._infer_dt):
+            self._last_infer = now
+            try:
+                self.dets = self.detector.detect(self.frame)
+            except Exception as exc:
+                self.get_logger().warn(
+                    f'BPU YOLO 失败: {exc}', throttle_duration_sec=5.0)
+
+    def capture_image(self):
+        frame = self.frame
+        if frame is None:
             return
         timestamp = int(time.time())
         path = f'/tmp/capture_{timestamp}.jpg'
-        cv2.imwrite(path, frame)
+        vis = frame.copy()
+        for x1, y1, x2, y2, score, cls_id in self.dets:
+            cv2.rectangle(vis, (int(x1), int(y1)), (int(x2), int(y2)),
+                          (80, 220, 80), 2)
+        cv2.imwrite(path, vis)
         self.get_logger().info(f'图片已保存: {path}')
 
     def _preview(self):
-        """周期输出巡航画面（与 _tick 同在单线程 executor，串行取帧安全）。"""
-        if not self.cap.isOpened() or not self.out.enabled():
+        """周期输出巡航画面（与 _tick 同在单线程 executor）。"""
+        if self.frame is None or not self.out.enabled():
             return
-        ret, frame = self.cap.read()
-        if not ret:
-            return
+        vis = self.frame.copy()
+        for x1, y1, x2, y2, score, cls_id in self.dets:
+            p1, p2 = (int(x1), int(y1)), (int(x2), int(y2))
+            cv2.rectangle(vis, p1, p2, (80, 220, 80), 2)
+            label = self.detector.label(int(cls_id))
+            cv2.putText(vis, f'{label} {score:.2f}', (p1[0], max(16, p1[1] - 4)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (80, 220, 80), 1,
+                        cv2.LINE_AA)
         if self.waypoints is None:
             if self.airborne:
                 state = '悬停，规划航点'
@@ -159,9 +172,10 @@ class AutonomousCruiseNode(Node):
             state = f'航点 {self.wp_idx + 1}/{len(self.waypoints)}'
         else:
             state = '已完成，降落'
-        vis = frame.copy()
         alt = '高度 --' if self.alt_z is None else f'高度 {self.alt_z:.2f} m'
-        put_cn_lines(vis, [(alt, (0, 255, 255)), (state, (0, 255, 255))],
+        bpu = 'BPU YOLO' if self.detector.loaded else 'YOLO 未加载'
+        put_cn_lines(vis, [(alt, (0, 255, 255)), (state, (0, 255, 255)),
+                           (bpu, (80, 220, 80))],
                      origin=(8, 6), size=20)
         self.out.output(vis)
 
@@ -189,17 +203,11 @@ class AutonomousCruiseNode(Node):
 
     def destroy_node(self):
         self.out.close()
-        if self.cap is not None:
-            self.cap.release()
         super().destroy_node()
 
 
 def main(args=None):
     parser = argparse.ArgumentParser(description='自主巡航拍照任务')
-    parser.add_argument('--device', default='auto',
-                        help='摄像头设备；auto 表示自动探测能出图的 /dev/video*')
-    # 必须显式 default=True：--show/--no-show 共用 dest，argparse 取
-    # 第一个 action 的默认值，store_true 的默认值是 False
     parser.add_argument('--show', dest='show', action='store_true',
                         default=True,
                         help='输出巡航画面（默认输出）')
@@ -212,7 +220,6 @@ def main(args=None):
     parsed, ros_args = parser.parse_known_args(args)
     rclpy.init(args=ros_args)
     node = AutonomousCruiseNode(
-        None if parsed.device == 'auto' else parsed.device,
         parsed.show, parsed.snapshot, parsed.snapshot_period)
     try:
         rclpy.spin(node)

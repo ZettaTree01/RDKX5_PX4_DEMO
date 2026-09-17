@@ -192,7 +192,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'start_stereo', default_value='true',
             description='source=stereonet 时拉起例程8 Stereonet'),
-        DeclareLaunchArgument('show', default_value='true'),
+        DeclareLaunchArgument('show', default_value='false'),
         DeclareLaunchArgument(
             'ego', default_value='true',
             description='启动 EGO 局部占据地图 + A* 路径节点'),
