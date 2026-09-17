@@ -132,6 +132,28 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /global_list
       Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: FollowLink
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /drone/follow/link
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: GoalPoint
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /goal_point
+      Value: true
     - Class: rviz_default_plugins/Pose
       Enabled: true
       Name: FollowTarget

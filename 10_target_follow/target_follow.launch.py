@@ -49,7 +49,7 @@ def generate_launch_description():
 
     tip = LogInfo(msg=[
         '例程10：目标跟随（YOLO 行人 + 深度 3D + EGO/直接）。',
-        ' RViz=官方彩色点云+目标/路径。OpenCV 检测框；需拆桨。',
+        ' RViz=例程8同款彩色点云(camera_link)+规划路线+跟随连线；需拆桨。',
     ])
 
     use_ego = PythonExpression(["'", planner, "'.lower() == 'ego'"])
@@ -292,9 +292,7 @@ def generate_launch_description():
         ],
         output='log',
         name='map_world_tf',
-        condition=IfCondition(PythonExpression([
-            "'", rviz, "'.lower() == 'true'",
-        ])),
+        condition=IfCondition(use_ego),
     )
 
     rviz_node = ExecuteProcess(
@@ -317,13 +315,13 @@ def generate_launch_description():
         DeclareLaunchArgument('bench', default_value='true'),
         DeclareLaunchArgument('source', default_value='stereonet'),
         DeclareLaunchArgument('start_stereo', default_value='true'),
-        DeclareLaunchArgument('show', default_value='false'),
+        DeclareLaunchArgument('show', default_value='true'),
         DeclareLaunchArgument(
             'planner', default_value='ego',
             description='ego=完整EGO(/move_base_simple/goal)；direct=位置直跟'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='默认 true：RViz 订官方 stereonet_pointcloud2 + 目标/路径；省 CPU 时 rviz:=false'),
+            description='默认 true：RViz Fixed Frame=camera_link（同例程8）+ 规划/跟随；省 CPU 时 rviz:=false'),
         DeclareLaunchArgument('standoff', default_value='0.8'),
         DeclareLaunchArgument('follow_z', default_value=INDOOR_ALT),
         DeclareLaunchArgument('max_vel', default_value=INDOOR_MAX_VEL),

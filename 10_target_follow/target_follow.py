@@ -38,11 +38,12 @@ from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy,
     qos_profile_sensor_data)
-from geometry_msgs.msg import PoseStamped, TwistStamped
+from geometry_msgs.msg import Point, PoseStamped, TwistStamped
 from mavros_msgs.msg import State
 from nav_msgs.msg import Path
 from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, Float64, Header
+from visualization_msgs.msg import Marker
 from cv_bridge import CvBridge
 
 sys.path.insert(0, os.path.join(
@@ -241,6 +242,7 @@ class TargetFollowNode(Node):
         self.follow_goal_pub = self.create_publisher(
             PoseStamped, '/drone/follow/goal', 5)
         self.path_pub = self.create_publisher(Path, '/drone/nav/path_history', 1)
+        self.link_pub = self.create_publisher(Marker, '/drone/follow/link', 5)
 
         # EGO z 对齐基准：室内 MAVROS local z 是气压绝对高度（几十米），
         # EGO 地图 z 固定 [-0.5, 1.5]，需减 z0 回到地图内（桥已同基准变换）
@@ -302,6 +304,15 @@ class TargetFollowNode(Node):
             self._z0 = float(msg.data)
             self.get_logger().info(
                 f'z 对齐基准 z0={self._z0:.3f}（EGO 世界系 z = z_mavros - z0）')
+
+    def _ego_z(self, z_mavros: float) -> float:
+        """MAVROS local z → EGO/world 可视化高度。"""
+        if self._z0 is None:
+            return float(z_mavros)
+        return float(z_mavros) - self._z0
+
+    def _ego_xyz(self, xyz) -> tuple:
+        return (float(xyz[0]), float(xyz[1]), self._ego_z(xyz[2]))
 
     def _on_depth(self, msg: Image):
         try:
@@ -528,13 +539,12 @@ class TargetFollowNode(Node):
         # EGO MANUAL_TARGET（z 已在 EGO 对齐系）
         ego = self._pose_msg(goal, 'world')
         self.goal_ego_pub.publish(ego)
-        # 可视化（RViz world = EGO 对齐系）：目标 z 减基准
-        self.follow_goal_pub.publish(self._pose_msg(goal, 'map'))
+        # RViz：与 EGO Marker 同用 world（Fixed Frame=camera_link 靠 TF）
+        self.follow_goal_pub.publish(self._pose_msg(goal, 'world'))
         if self.target_w is not None:
-            tz_viz = (self.target_w[2] if self._z0 is None
-                      else self.target_w[2] - self._z0)
             self.target_pub.publish(self._pose_msg(
-                (self.target_w[0], self.target_w[1], tz_viz), 'map'))
+                self._ego_xyz(self.target_w), 'world'))
+        self._publish_follow_link(goal)
         if self.planner in ('direct', 'position'):
             # offboard 用 MAVROS local 系：把 EGO 对齐系 z 加回基准
             sp_goal = goal if self._z0 is None else (
@@ -543,12 +553,39 @@ class TargetFollowNode(Node):
         self._last_goal_t = time.monotonic()
         self._last_goal_pub = goal
 
+    def _publish_follow_link(self, goal):
+        """机体 → 跟随点 → 行人：RViz 橙线，与 OpenCV 俯视一致。"""
+        if self.pose is None:
+            return
+        mk = Marker()
+        mk.header.stamp = self.get_clock().now().to_msg()
+        mk.header.frame_id = 'world'
+        mk.ns = 'follow_link'
+        mk.id = 0
+        mk.type = Marker.LINE_STRIP
+        mk.action = Marker.ADD
+        mk.pose.orientation.w = 1.0
+        mk.scale.x = 0.06
+        mk.color.r = 1.0
+        mk.color.g = 0.55
+        mk.color.b = 0.1
+        mk.color.a = 1.0
+        mk.lifetime.sec = 1
+        body = self._ego_xyz(self.pose)
+        pts = [body, (float(goal[0]), float(goal[1]), float(goal[2]))]
+        if self.target_w is not None:
+            pts.append(self._ego_xyz(self.target_w))
+        for xyz in pts:
+            p = Point()
+            p.x, p.y, p.z = xyz
+            mk.points.append(p)
+        self.link_pub.publish(mk)
+
     def _publish_history_path(self):
         path = Path()
         path.header = Header(
-            stamp=self.get_clock().now().to_msg(), frame_id='map')
-        z = self.pose[2] if self.pose else 0.0
-        for x, y in self.trail:
+            stamp=self.get_clock().now().to_msg(), frame_id='world')
+        for x, y, z in self.trail:
             ps = PoseStamped()
             ps.header = path.header
             ps.pose.position.x = x
@@ -563,10 +600,11 @@ class TargetFollowNode(Node):
         if (self.airborne and self.pose is not None
                 and time.monotonic() - self._last_trail_t > 0.2):
             self._last_trail_t = time.monotonic()
+            ez = self._ego_z(self.pose[2])
             if (not self.trail
                     or math.hypot(self.trail[-1][0] - self.pose[0],
                                   self.trail[-1][1] - self.pose[1]) > 0.02):
-                self.trail.append((self.pose[0], self.pose[1]))
+                self.trail.append((self.pose[0], self.pose[1], ez))
                 if len(self.trail) > 2000:
                     self.trail = self.trail[-2000:]
                 self._publish_history_path()

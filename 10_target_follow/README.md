@@ -39,7 +39,7 @@ YOLO 行人框 → 深度取 3D → 计算 standoff 跟随点
         ↓
  /move_base_simple/goal  →  EGO（避障 B 样条）→ traj_server → OFFBOARD
 OpenCV：检测画面（行人框）| 三维俯视（N=初始机头）| 底部中文状态栏
-RViz：例程8同款（Fixed Frame=`camera_link` + 官方彩色点云）+ 规划 Marker + 目标/跟随点
+RViz：例程8同款（Fixed Frame=`camera_link` + 官方彩色点云）+ EGO 规划 Marker + 跟随连线/目标点
 ```
 
 | 层级 | 内容 |
@@ -98,12 +98,14 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 |------|------|
 | `/move_base_simple/goal` | 跟随点 → EGO 动态目标（ego 模式，约 1.8 Hz） |
 | `/drone/setpoint_position/local` | 位置设定点（direct 模式 / EGO poscmd 桥接） |
-| `/drone/follow/target` | 行人 3D 位置（RViz 可视） |
-| `/drone/follow/goal` | 计算的跟随点（RViz 可视） |
 | `/position_cmd` | traj_server 轨迹命令（100 Hz） |
-| `/drone/nav/path_history` | 历史航迹 |
-| `/grid_map/occupancy(_inflate)` | EGO 占据栅格 |
-| `/StereoNetNode/stereonet_pointcloud2` | Stereonet 点云 |
+| `/drone/follow/target` | 行人 3D（world，z 已对齐） |
+| `/drone/follow/goal` | 跟随点（world） |
+| `/drone/follow/link` | 机体→跟随点→行人连线（RViz Marker） |
+| `/optimal_list` / `/a_star_list` | EGO 规划路线 |
+| `/drone/nav/path_history` | 历史航迹（world） |
+| `/grid_map/occupancy_inflate` | EGO 膨胀占据 |
+| `/StereoNetNode/stereonet_pointcloud2` | 例程8同款彩色点云 |
 
 ## 注意事项
 
@@ -117,6 +119,8 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 | 检测不到行人 | 距离 0.5–5 m、光照充足；可把 `min_score:=0.2` |
 | 目标短暂丢失就停 | 正常：约 1 s 记忆，超时后悬停并继续搜索 |
 | HUD 无窗口 | 无 DISPLAY 时写快照 `/tmp/target_follow_snapshot.jpg`，或传 `snapshot:=` |
+| RViz 只有橙点/无彩色点云 | Fixed Frame 应为 `camera_link`；关掉旧 RViz 后重跑 `run.sh` |
+| 有点云无规划线 | 需检出到行人并下发 goal；确认 Displays 勾选 OptimalBspline / FollowLink |
 
 ```bash
 source /opt/tros/humble/setup.bash
