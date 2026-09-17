@@ -4,7 +4,7 @@
 
 ## 例程说明
 
-验证 **RDK X5（机载计算机）与 PX4 飞控主板之间通过 40PIN 针脚串口的 MAVLink 交互**：
+验证 **RDK X5（机载计算机）与飞控主板 ZP-PV601 之间通过 40PIN 针脚串口的 MAVLink 交互**：
 本教程使用 **UART2**，X5 上设备节点为 `/dev/ttyS2`，飞控端接 TELEM 串口（须已开启 MAVLink）。
 
 例程分两步：**步骤 1** 只读飞控姿态，验证链路通联；**步骤 2**（可选，必须拆桨）做电机测试。
@@ -17,7 +17,7 @@
 - 后续 02～08 飞行例程均复用该串口。
 
 ```
-RDK X5 40PIN(UART2 /dev/ttyS2@57600) --杜邦线-- PX4 飞控 TELEM
+RDK X5 40PIN(UART2 /dev/ttyS2@57600) --杜邦线-- 飞控主板 ZP-PV601 TELEM
 ```
 
 ## 实际接线（与 X5 默认 UART1 不同）
@@ -46,7 +46,7 @@ ls -l /dev/ttyS2        # crw-rw---- 1 root dialout 4, 66 ... /dev/ttyS2
 
 ## 验证链路（步骤 1）：读取飞控姿态
 
-`attitude_via_usb.py`（文件名沿用例程初版命名，链路实为 40PIN UART2）从 PX4
+`attitude_via_usb.py`（文件名沿用例程初版命名，链路实为 40PIN UART2）从飞控主板 ZP-PV601
 订阅 `ATTITUDE(30)`，打印 roll/pitch/yaw 与三轴角速度。
 **能出姿态 = 机载↔飞控的针脚串口链路是通的**；一帧都没有 = 链路层有问题。
 

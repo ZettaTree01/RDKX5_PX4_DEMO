@@ -1,6 +1,6 @@
-# RDK X5 + PX4 机载例程
+# RDK X5 + ZP-PV601 机载例程
 
-面向 **多旋翼无人机 + PX4**：例程部署在 RDK X5 机载计算机 `/app/zettatree_demo`，飞行指令经 MAVROS 发给飞控。
+面向 **多旋翼无人机 + 飞控主板 ZP-PV601**：例程部署在 RDK X5 机载计算机 `/app/zettatree_demo`，飞行指令经 MAVROS 发给飞控主板。
 
 ROS2 例程用各目录 `run.sh`（会 `source` TogetheROS Humble）。视觉与深度默认走 **BPU 量化算力**（GS130W MIPI + Stereonet / YOLO `.bin`），USB 相机仅作回退。
 
@@ -25,16 +25,16 @@ bash run.sh --yes
 |------|----------|------|----------|
 | `_common` | 2.7 / 3.1 / 4.3 | 共享组件：MAVROS、OFFBOARD、相机、YOLO、深度点云、室内限速 | 无 |
 | `00_env_check` | — | 环境自检与依赖安装 | 无 |
-| `01_uart_serial` | 1.2.7 | 例程1：40PIN 针脚串口（机载↔飞控）读姿态 / 拆桨电机测试 | 飞控 TELEM + 杜邦线 |
-| `02_bench_pose_sim` | 2.8 | 例程2：台架位姿模拟器（室内无 GPS、拆桨验证用） | 飞控，**拆桨** |
+| `01_uart_serial` | 1.2.7 | 例程1：40PIN 针脚串口（机载↔飞控主板 ZP-PV601）读姿态 / 拆桨电机测试 | ZP-PV601 TELEM + 杜邦线 |
+| `02_bench_pose_sim` | 2.8 | 例程2：台架位姿模拟器（室内无 GPS、拆桨验证用） | ZP-PV601，**拆桨** |
 | `03_camera_node` | 3.1 | 例程3：默认 GS130W MIPI 发图（USB 可回退） | MIPI 或 `/dev/video0` |
 | `04_object_detection` | 3.1 | 例程4：BPU 量化 YOLO + 官方解码 | BPU `.bin` + 相机 |
-| `05_obstacle_avoidance` | 3.2 | 例程5：BPU YOLO 识别避障 | BPU + 相机 + 飞控 |
-| `06_autonomous_cruise` | 4.1 | 例程6：自主巡航拍照（BPU YOLO 叠框） | 飞控 + MIPI/USB |
-| `07_target_tracking` | 4.2 | 例程7：停机坪 H 标对准降落 | 相机 + 飞控 |
+| `05_obstacle_avoidance` | 3.2 | 例程5：BPU YOLO 识别避障 | BPU + 相机 + ZP-PV601 |
+| `06_autonomous_cruise` | 4.1 | 例程6：自主巡航拍照（BPU YOLO 叠框） | ZP-PV601 + MIPI/USB |
+| `07_target_tracking` | 4.2 | 例程7：停机坪 H 标对准降落 | 相机 + ZP-PV601 |
 | `08_depth_camera` | 4.3 | 例程8：GS130W **BPU Stereonet** 深度/点云 | MIPI 双目 GS130W |
-| `09_depth_nav` | 4.4 | 例程9：深度导航（Stereonet BPU + EGO） | 深度相机 + 飞控，**拆桨** |
-| `10_target_follow` | 4.5 | 例程10：目标跟随（BPU YOLO + Stereonet） | 深度相机 + BPU + 飞控，**拆桨** |
+| `09_depth_nav` | 4.4 | 例程9：深度导航（Stereonet BPU + EGO） | 深度相机 + ZP-PV601，**拆桨** |
+| `10_target_follow` | 4.5 | 例程10：目标跟随（BPU YOLO + Stereonet） | 深度相机 + BPU + ZP-PV601，**拆桨** |
 | `11_formation_flight` | 4.6 | 例程11：编队（一机一进程） | 多机 |
 
 ## 算力约定（BPU 优先）
@@ -54,7 +54,7 @@ bash run.sh --yes
 2. `01_uart_serial` 的针脚串口脚本可直接 `python3 xxx.py`（默认端口 `/dev/ttyS2`）
 3. ROS2 例程用 `bash /app/zettatree_demo/<例程>/run.sh` 启动，
    参数以 `名称:=值` 透传，例如 `run.sh arm:=true`（室内默认高度 0.1 m）
-4. 飞控通信统一走 **40PIN UART2 针脚串口** `/dev/ttyS2:57600`（首次使用先按下文使能 UART2）
+4. 与飞控主板 ZP-PV601 的通信统一走 **40PIN UART2 针脚串口** `/dev/ttyS2:57600`（首次使用先按下文使能 UART2）
 5. 首次 OFFBOARD 验证必须拆桨
 6. OFFBOARD 管理器在 `_common/offboard_manager.py`，往飞控发设定点只走它；
    任务节点只发 `/drone/setpoint_*`（`05`、`06` 等飞行例程就是这样用的）
@@ -69,10 +69,10 @@ bash run.sh --yes
 
 ## 接线与 UART2 使能（首次使用必读）
 
-本套例程飞控链路走 **40PIN 针脚串口 UART2（`/dev/ttyS2`）**，实接三根线
+本套例程与飞控主板 ZP-PV601 的链路走 **40PIN 针脚串口 UART2（`/dev/ttyS2`）**，实接三根线
 （注意：**该组引脚与 X5 默认 UART1 的 PIN8/PIN10 不同**）：
 
-| X5 40PIN 物理脚 | 功能 | 接到飞控 | 方向 |
+| X5 40PIN 物理脚 | 功能 | 接到飞控主板 ZP-PV601 | 方向 |
 |---|---|---|---|
 | **PIN20** | GND | GND | 共地 |
 | **PIN22** | UART2_RXD | 飞控主板 **TX** | ← 收 |
@@ -104,7 +104,7 @@ sudo cp /boot/hobot/x5-rdk-v1p0.dtb.bak-uart2 /boot/hobot/x5-rdk-v1p0.dtb && sud
 > 不确定时用 `cat /sys/firmware/devicetree/base/model` 与各 dtb 的 `model` 属性比对。
 
 飞控侧要求：所接 TELEM 口必须**已开启 MAVLink 实例**（`MAV_x_CONFIG` 指向该 TELEM），
-波特率与 `fcu_url` 一致（本教程 57600）。PX4 默认在 TELEM2 输出 MAVLink；若接的是
+波特率与 `fcu_url` 一致（本教程 57600）。飞控主板（ZP-PV601）默认在 TELEM2 输出 MAVLink；若接的是
 TELEM1，需要先在 QGC 里把 `MAV_0_CONFIG` 改为对应 TELEM 端口。
 
 ## MAVROS 的启动方式
@@ -116,7 +116,7 @@ TELEM1，需要先在 QGC 里把 `MAV_0_CONFIG` 改为对应 TELEM 端口。
 - 不要把插件清单 `sudo cp` 到 `/opt/ros/humble/share/mavros/launch/`：
   那里是所有例程共用的安装目录。
 
-- **飞控 USB 口备选**：`/dev/ttyACM0`（PX4 默认输出 MAVLink），
+- **飞控 USB 口备选**：`/dev/ttyACM0`（飞控主板（ZP-PV601）默认输出 MAVLink），
 给例程传 `fcu_url:=/dev/ttyACM0:115200` 即可，例如：
 
 ```bash
