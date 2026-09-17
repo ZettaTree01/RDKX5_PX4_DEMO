@@ -145,12 +145,6 @@ bash /app/zettatree_demo/06_autonomous_cruise/run.sh fcu_url:=/dev/ttyACM0:11520
 | `ego_local_planner.py` | 4.4 | 本地规划回退 | `09`/`10` |
 | `perf_utils.py` | — | OpenCV 线程与有界队列 | 视觉节点可选 |
 
-## 仓库约定
-
-- 文本文件统一 **UTF-8 + LF**；Shell 脚本 shebang 为 `#!/usr/bin/env bash`。
-- 不提交 `_tmp_*`、`__pycache__`、日志、快照图、板端编译树。
-- **不纳入本仓库**：`mavros/` 上游源码、`09_depth_nav/ego_ws`（由 `setup_full_ego.sh` 在板端拉取编译）、BPU `.bin` 模型（使用板端 `/opt/hobot/model/`）。
-
 ## 许可证
 
 MIT，见 [LICENSE](LICENSE)。
