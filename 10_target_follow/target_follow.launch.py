@@ -219,7 +219,6 @@ def generate_launch_description():
             'grid_map/min_ray_length': 0.1,
             'grid_map/max_ray_length': 4.5,
             'grid_map/virtual_ceil_height': 1.8,
-            # 过低会滤掉 inflate/天花板，RViz 建模变空
             'grid_map/visualization_truncate_height': 2.5,
             'grid_map/show_occ_time': False,
             'grid_map/pose_type': 2,

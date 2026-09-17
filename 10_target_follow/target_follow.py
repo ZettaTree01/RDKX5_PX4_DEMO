@@ -8,13 +8,10 @@
   - ego：发布 /move_base_simple/goal，由完整 C++ EGO 避障规划跟径
   - direct：直接发 /drone/setpoint_position/local（无规划器时的台架对照）
 
-OpenCV（对齐例程 9）：
-  - 左：检测画面 + 行人框（画面干净，数值一律不压图）
-  - 右：三维俯视（初始机头方向 = N 朝上；航迹黄线；
-    机体→跟随点→目标橙线；行人「人」/跟随点「跟」中文标记；
-    机体红点带净空底衬不被点云遮挡）
-  - 底部状态栏四行中文（PIL）：阶段/位移、速度/高度/目标距离、
-    七扇区距离（红/橙/绿 = 急停/绕行/自由）、跟随点距离/源
+OpenCV：
+  - 左：检测画面 + 行人框（数值在底部状态栏）
+  - 右：三维俯视（初始机头 = N；航迹；机体→跟随点→目标；中文「人」「跟」）
+  - 底部状态栏四行中文（PIL）
   - YOLO 限频 5 Hz；目标短暂丢失在 target_timeout 内记忆保持。
 
 必须拆桨。
@@ -328,7 +325,6 @@ class TargetFollowNode(Node):
             return
         self._last_color_t = now
         # origin_left 是 NV12（mipi dual 常用），cv_bridge 不认，须走
-        # image_msg_to_bgr；解码失败必须可见，否则 YOLO 永远拿不到帧
         try:
             self.color_bgr = image_msg_to_bgr(msg, self.bridge)
         except Exception as exc:
@@ -596,7 +592,7 @@ class TargetFollowNode(Node):
         self.path_pub.publish(path)
 
     def _tick_control(self):
-        # 航迹记录（对齐例程 9：起飞后、水平位移超阈值才记录）
+        # 航迹：起飞后、水平位移超阈值才记录
         if (self.airborne and self.pose is not None
                 and time.monotonic() - self._last_trail_t > 0.2):
             self._last_trail_t = time.monotonic()
@@ -671,7 +667,7 @@ class TargetFollowNode(Node):
             f'跟随 | 目标 {td:.2f} m（保持 {self.standoff:.2f}）'
             f' | {self.planner}' + (' | 记忆保持' if stale else ''))
 
-    # ---- 可视化（对齐例程 9）----
+    # ---- 可视化 ----
 
     def _waiting_panel(self) -> np.ndarray:
         panel = np.zeros((472, 992, 3), np.uint8)

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""把 world 点云体素化后发给 RViz，保证「建模」可见。
+"""把 world 点云体素化后发给 RViz（/drone/ego/occ_viz）。
 
-EGO 的 /grid_map/occupancy 在纯点云模式下常为空（只写 inflate），
-且 visualization_truncate_height 过低会滤掉膨胀层。本节点作稳定可视化兜底。
+EGO 的 /grid_map/occupancy 在纯点云模式下常为空，本节点提供稳定可视化。
 """
 from __future__ import annotations
 

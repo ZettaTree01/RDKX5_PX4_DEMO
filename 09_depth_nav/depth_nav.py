@@ -345,7 +345,7 @@ class DepthNavNode(Node):
             self.cx, self.cy = float(msg.k[2]), float(msg.k[5])
 
     def _on_stereo_visual(self, msg: Image):
-        """官方深彩（与例程 8 OpenCV 左栏一致）。限频解码减轻卡顿。"""
+        """官方深彩（Stereonet visual）。限频解码减轻卡顿。"""
         now = time.monotonic()
         if now - self._last_visual_t < 0.2:
             return
@@ -672,7 +672,7 @@ class DepthNavNode(Node):
             title='',  # 深彩画面不再叠标题；信息集中在底部状态栏
             panel_mode='depth_cloud')
 
-        # 左栏换官方深彩（对齐例程 8）；扇区距离数值在底部状态栏，不再叠色框
+        # 左栏：官方深彩；扇区距离在底部状态栏
         if panel.shape[1] > panel.shape[0]:
             h = panel.shape[0]
             left_w = panel.shape[1] - h

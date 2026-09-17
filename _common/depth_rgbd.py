@@ -45,7 +45,7 @@ def depth_msg_to_meters(depth_np, encoding: str) -> np.ndarray:
 
 def colorize_depth(depth_m: np.ndarray, max_range: float = 4.0,
                    min_range: float = 0.2) -> np.ndarray:
-    """深度伪彩。按有效像素 5%~95% 分位拉伸，避免整幅发蓝看不清。"""
+    """深度伪彩。按有效像素 5%~95% 分位拉伸色标。"""
     d = depth_m.astype(np.float32)
     valid = np.isfinite(d) & (d > float(min_range)) & (d <= float(max_range))
     color = np.full((*d.shape, 3), 18, np.uint8)
