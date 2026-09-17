@@ -1,20 +1,31 @@
 #!/usr/bin/env bash
 # GS130W + hobot_stereonet（BPU DStereo V2.4 int16）
-# DStereoV2.4：need_rectify=false，postprocess=v2.3，uncertainty_th=-0.09
-# 参数名 base_line；CameraInfo 由 pub_stereo_caminfo.py 发布。
+# TROS 参数：baseline、calib_method=none、render_type 为 indoor/distance 等字符串。
+# CameraInfo 由 pub_stereo_caminfo.py 发布。
 set -e
 # shellcheck disable=SC1091
 source /opt/tros/humble/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-if [ ! -w /userdata/.roslog ] 2>/dev/null; then
-  sudo -n mkdir -p /userdata/.roslog >/dev/null 2>&1 || true
-  sudo -n chown -R "$(id -un):$(id -gn)" /userdata/.roslog >/dev/null 2>&1 || true
-  sudo -n chmod 777 /userdata/.roslog >/dev/null 2>&1 || true
+_pick_dir() {
+  local d
+  for d in "$@"; do
+    [ -n "$d" ] || continue
+    mkdir -p "$d" 2>/dev/null || continue
+    [ -w "$d" ] || continue
+    printf '%s' "$d"
+    return 0
+  done
+  return 1
+}
+
+if [ -z "${ROS_LOG_DIR:-}" ] || [ ! -w "${ROS_LOG_DIR}" ] 2>/dev/null; then
+  ROS_LOG_DIR="$(_pick_dir /userdata/.roslog /tmp/zettatree_roslog \
+    "/tmp/zettatree_roslog_${UID:-0}")" || ROS_LOG_DIR="/tmp/zettatree_roslog_${UID:-0}"
+  mkdir -p "$ROS_LOG_DIR" 2>/dev/null || true
+  export ROS_LOG_DIR
 fi
-export ROS_LOG_DIR=/userdata/.roslog
-mkdir -p "$ROS_LOG_DIR"
 
 MODEL="${STEREO_MODEL:-}"
 if [ -z "$MODEL" ]; then
@@ -51,7 +62,12 @@ if [ -n "${LEFT_CAMERA_INFO_TOPIC:-}" ]; then
 fi
 
 # 节点会读相对路径 ./config/stereo.yaml
-RUN_DIR="${STEREO_RUN_DIR:-/userdata/stereonet_run}"
+if [ -z "${STEREO_RUN_DIR:-}" ]; then
+  STEREO_RUN_DIR="$(_pick_dir /userdata/stereonet_run \
+    "${ROS_LOG_DIR}/stereonet_run" "/tmp/stereonet_run_${UID:-0}" \
+    "${HOME:-/tmp}/.stereonet_run")" || STEREO_RUN_DIR="/tmp/stereonet_run_${UID:-0}"
+fi
+RUN_DIR="$STEREO_RUN_DIR"
 mkdir -p "$RUN_DIR/config"
 CALIB_ABS="/opt/tros/humble/share/hobot_stereonet/config/stereo.yaml"
 if [ -f "$CALIB_ABS" ]; then
@@ -92,60 +108,68 @@ if ! pgrep -f 'pub_stereo_caminfo.py' >/dev/null 2>&1; then
   sleep 1
 fi
 
-RENDER_TYPE="${RENDER_TYPE:-0}"
+# 官方声明为枚举字符串；数字 0 会被 YAML 解析成 integer，节点直接退出
+RENDER_TYPE="${RENDER_TYPE:-indoor}"
+case "${RENDER_TYPE}" in
+  0) RENDER_TYPE=indoor ;;
+  1) RENDER_TYPE=outdoor ;;
+esac
 PC_STEP="${POINTCLOUD_DOWNSAMPLE_STEP:-2}"
 RENDER_PERF="${RENDER_PERF:-true}"
+RENDER_YAML="\"${RENDER_TYPE}\""
 
-PARAMS="${STEREO_PARAMS_FILE:-/tmp/zettatree_stereonet_params_${UID}.yaml}"
+PARAMS="${STEREO_PARAMS_FILE:-}"
+if [ -z "$PARAMS" ]; then
+  PARAMS="${RUN_DIR}/stereonet_params.yaml"
+fi
 PARAMS_DIR="$(dirname "$PARAMS")"
 if ! mkdir -p "$PARAMS_DIR" 2>/dev/null || ! (touch "$PARAMS" 2>/dev/null); then
-  PARAMS="/tmp/zettatree_stereonet_params_${UID}.yaml"
+  PARAMS="${ROS_LOG_DIR}/stereonet_params_${UID}.yaml"
+  mkdir -p "$(dirname "$PARAMS")" 2>/dev/null || true
   touch "$PARAMS" 2>/dev/null || {
     echo "[GS130W stereonet] ERROR: 无法创建参数文件: $PARAMS" >&2
     exit 1
   }
 fi
-if [ "${RENDER_TYPE_IS_STRING:-0}" = "1" ]; then
-  RENDER_YAML="\"${RENDER_TYPE}\""
-else
-  case "$RENDER_TYPE" in
-    ''|*[!0-9]*) RENDER_YAML="0" ;;
-    *) RENDER_YAML="$RENDER_TYPE" ;;
-  esac
-fi
 
-# DStereoV2.4 参数
+# 仅写入本机 TROS 已声明的参数名（baseline / post_version / calib_method）
 cat > "$PARAMS" <<EOF
 /**:
   ros__parameters:
     stereonet_model_file_path: "${MODEL}"
     stereo_image_topic: "/image_combine_raw"
-    stereo_combine_mode: ${COMBINE_MODE}
     camera_info_topic: "${RIGHT_INFO}"
-    need_rectify: false
-    load_rectify_param: false
+    left_camera_info_topic: "${LEFT_INFO}"
+    calib_method: "none"
     stereo_calib_file_path: "${CALIB_ABS}"
     camera_fx: ${FX}
     camera_fy: ${FY}
     camera_cx: ${CX}
     camera_cy: ${CY}
-    base_line: ${BASELINE_M}
-    postprocess: "v2.3"
+    baseline: ${BASELINE_M}
+    post_version: "auto"
     render_type: ${RENDER_YAML}
     render_perf: ${RENDER_PERF}
     uncertainty_th: -0.09
-    depth_need_filter: true
-    pc_max_depth: 5.0
-    height_min: -10.0
-    height_max: 10.0
-    leaf_size: 0.05
+    pointcloud_depth_max: 5.0
+    pointcloud_height_min: -10.0
+    pointcloud_height_max: 10.0
     pointcloud_downsample_step: ${PC_STEP}
+    publish_pcd_enabled: true
+    publish_visual_enabled: true
+    save_result_flag: false
+    save_stereo_flag: false
+    save_disp_flag: false
+    save_depth_flag: false
+    save_visual_flag: false
+    save_pcd_flag: false
+    save_origin_flag: false
 EOF
 
 echo "[GS130W stereonet] model=$MODEL cwd=$RUN_DIR"
-echo "[GS130W stereonet] fx=$FX fy=$FY cx=$CX cy=$CY base_line=${BASELINE_M}m combine_mode=$COMBINE_MODE"
-echo "[GS130W stereonet] camera_info=$RIGHT_INFO need_rectify=false postprocess=v2.3 uncertainty_th=-0.09"
-echo "[GS130W stereonet] render_type=$RENDER_YAML leaf_size/downsample~ step env=$PC_STEP"
+echo "[GS130W stereonet] fx=$FX fy=$FY cx=$CX cy=$CY baseline=${BASELINE_M}m combine_mode=$COMBINE_MODE"
+echo "[GS130W stereonet] camera_info=$RIGHT_INFO left=$LEFT_INFO calib_method=none post_version=auto"
+echo "[GS130W stereonet] render_type=$RENDER_YAML downsample_step=$PC_STEP"
 echo "[GS130W stereonet] params=$PARAMS"
 
 extra=()

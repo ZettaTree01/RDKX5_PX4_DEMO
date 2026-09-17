@@ -36,6 +36,7 @@ from depth_rgbd import (
     simulate_depth_room, split_stereo_combine, stereo_to_depth_m,
     _project_top)
 from frame_output import FrameOutput
+from cn_hud import put_cn_lines
 
 
 TOPIC_PRESETS = {
@@ -312,15 +313,18 @@ class DepthPointCloudNode(Node):
             self._map_pts = np.zeros((0, 3), dtype=np.float32)
 
     def _show_depth_map_panel(self):
-        """OpenCV 双栏：深彩 | 三维俯视（相机系 x 右、z 前）。"""
+        """OpenCV：深彩；非 depth 模式再拼三维俯视。"""
         if not self.out.enabled():
             return
         now = time.monotonic()
         if now - self._last_panel < 0.12:
             return
-        self._last_panel = now
         left = self._last_visual
         if left is None:
+            return
+        self._last_panel = now
+        if self.panel_mode == 'depth':
+            self.out.output(left)
             return
         # 俯视：x→右, z→前（图像上）
         if self._map_pts.size:
@@ -375,7 +379,8 @@ class DepthPointCloudNode(Node):
         return out
 
     def _tick_stereo_official_wait(self):
-        if self._stereo_depth_ok and self._stereo_visual_ok and self._stereo_points_ok:
+        # 深彩已到则不再用等待页覆盖；点云可稍后到
+        if self._last_visual is not None or self._stereo_visual_ok:
             return
         miss = []
         if not self._stereo_depth_ok:
@@ -562,9 +567,9 @@ class DepthPointCloudNode(Node):
             return
         panel = np.zeros((300, 720, 3), np.uint8)
         panel[:] = (32, 34, 38)
-        for i, line in enumerate(text.split('\n')):
-            cv2.putText(panel, line, (20, 50 + i * 32),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (230, 230, 230), 2)
+        lines = [(line, (230, 230, 230))
+                 for line in text.split('\n') if line.strip()]
+        put_cn_lines(panel, lines, origin=(20, 28), size=22)
         self.out.output(panel)
 
     def _tick_simulate(self):

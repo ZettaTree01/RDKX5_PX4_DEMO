@@ -78,12 +78,14 @@ _stop_stale_08() {
   for p in $(pgrep -f '/opt/tros/humble/lib/mipi_cam/mipi_cam' || true); do
     kill -TERM "$p" 2>/dev/null || sudo -n kill -TERM "$p" 2>/dev/null || true
   done
+  pkill -TERM -f 'ros2 run mipi_cam mipi_cam' 2>/dev/null || true
   sleep 1
   pkill -9 -f '/app/zettatree_demo/08_depth_camera/depth_pointcloud.py' 2>/dev/null || true
   pkill -9 -f '/opt/tros/humble/lib/hobot_stereonet/stereonet_model_node' 2>/dev/null || true
   for p in $(pgrep -f '/opt/tros/humble/lib/mipi_cam/mipi_cam' || true); do
     kill -9 "$p" 2>/dev/null || true
   done
+  pkill -9 -f 'ros2 run mipi_cam mipi_cam' 2>/dev/null || true
 }
 
 _setup_gl() {

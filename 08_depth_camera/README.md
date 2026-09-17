@@ -60,9 +60,9 @@ bash /app/zettatree_demo/08_depth_camera/run.sh
 | 基线 | **80 mm**（标定约 **79.17 mm**） |
 | 分辨率 | **640×352**，LPWM，`rotation=90`，`channel=2/0`，`dual_combine=2` |
 | 内参 | **`fx=fy≈328.379`**，`cx=320`，`cy=176` |
-| 模型 | `DStereoV2.4_int16.bin`，`postprocess=v2.3`，`uncertainty_th=-0.09` |
+| 模型 | `DStereoV2.4_int16.bin`，`post_version=auto`，`uncertainty_th=-0.09` |
 | 右目 CameraInfo | `P[0,3]=+fx·B` |
-| Stereonet | `need_rectify:=false`，`stereo_combine_mode:=1` |
+| Stereonet | `calib_method=none`，`baseline`，`render_type=indoor` |
 
 ## 话题
 

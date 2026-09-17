@@ -42,6 +42,10 @@ _mipi_pids() {
   pgrep -f '/opt/tros/humble/lib/mipi_cam/mipi_cam' || true
 }
 
+_mipi_launch_alive() {
+  [ -n "${MIPI_RUN_PID:-}" ] && kill -0 "$MIPI_RUN_PID" 2>/dev/null
+}
+
 _mipi_owner_ok() {
   local pid ou
   pid=$(_mipi_pids | head -1)
@@ -65,6 +69,7 @@ _mipi_stop() {
   for p in $(_mipi_pids); do
     kill -TERM "$p" 2>/dev/null || sudo -n kill -TERM "$p" 2>/dev/null || true
   done
+  pkill -TERM -f 'ros2 run mipi_cam mipi_cam' 2>/dev/null || true
   for _ in 1 2 3 4 5; do
     _mipi_pids | grep -q . || break
     sleep 1
@@ -72,6 +77,7 @@ _mipi_stop() {
   for p in $(_mipi_pids); do
     kill -9 "$p" 2>/dev/null || sudo -n kill -9 "$p" 2>/dev/null || true
   done
+  pkill -9 -f 'ros2 run mipi_cam mipi_cam' 2>/dev/null || true
   sleep 1
 }
 
@@ -119,16 +125,20 @@ if [ "$NEED_RESTART" = "1" ]; then
     "${CALIB_ARGS[@]}" \
     --log-level warn \
     >"$MIPI_LOG" 2>&1 &
+  MIPI_RUN_PID=$!
   for i in $(seq 1 30); do
     sleep 1
-    if ! pgrep -f '/opt/tros/humble/lib/mipi_cam/mipi_cam' >/dev/null 2>&1; then
+    if ! _mipi_launch_alive && ! pgrep -f '/opt/tros/humble/lib/mipi_cam/mipi_cam' >/dev/null 2>&1; then
+      if [ "$i" -lt 6 ]; then
+        echo "[GS130W mipi] 初始化 ${i}/30"
+        continue
+      fi
       echo "[GS130W mipi] 进程已退出，见 $MIPI_LOG" >&2
       tail -n 50 "$MIPI_LOG" >&2 || true
       exit 1
     fi
-    # 前几秒只等 init
-    if [ "$i" -lt 5 ]; then
-        echo "[GS130W mipi] 初始化 ${i}/30"
+    if [ "$i" -lt 6 ]; then
+      echo "[GS130W mipi] 初始化 ${i}/30"
       continue
     fi
     if RATE=$(_mipi_has_frames); then

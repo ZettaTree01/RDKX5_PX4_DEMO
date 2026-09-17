@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""板端画面中文叠加。无字体时退回 ASCII。"""
+"""板端画面中文叠加。无字体时退回 ASCII，避免 OpenCV putText 显示 ??????。"""
 import os
 
 import cv2
@@ -8,26 +8,67 @@ import numpy as np
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 _CN_FONT_PATHS = (
     '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+    '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
     '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
     '/usr/share/fonts/truetype/arphic/uming.ttc',
+    '/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf',
     'C:/Windows/Fonts/msyh.ttc',
     'C:/Windows/Fonts/simhei.ttf',
 )
 _CN_FONT_CACHE = {}
+# 长词在前，避免短词先替换把句子拆坏
 _CN_ASCII = (
-    ('等待解锁', 'WAIT ARM'), ('起飞中', 'TAKEOFF'),
-    ('悬停，规划航点', 'HOVER PLAN'), ('航点', 'WP'),
-    ('已完成，降落', 'DONE LAND'), ('高度', 'ALT'),
-    ('等待起飞', 'WAIT TAKEOFF'), ('悬停搜索', 'HOVER SEARCH'),
-    ('导航中', 'NAV'), ('完成，降落', 'DONE LAND'),
-    ('避障中', 'AVOID'), ('阶段', 'phase'),
-    ('相对高', 'rel_alt'), ('前方深', 'front'),
-    ('轨迹点', 'trail'), ('等待模拟深度', 'wait sim depth'),
+    ('等待 Stereonet 深度数据', 'Waiting Stereonet'),
+    ('等待 Stereonet 深度图', 'Waiting Stereonet depth'),
+    ('等待 Stereonet / 行人检测', 'Waiting Stereonet / person'),
+    ('等待 Stereonet（GS130W / 例程8）', 'Waiting Stereonet'),
+    ('等待 MIPI 拼接图', 'Waiting MIPI combine'),
+    ('等待模拟深度', 'wait sim depth'),
     ('等待深度图', 'wait depth'),
-    ('位移', 'MOVE'), ('急停', 'STOP'), ('避障', 'AVOID'),
-    ('前', 'FWD'), ('后', 'BACK'), ('左', 'LEFT'), ('右', 'RIGHT'),
-    ('上升', 'UP'), ('下降', 'DOWN'), ('悬停', 'HOVER'),
+    ('等待深度对齐', 'wait depth'),
+    ('等待台架位姿', 'Waiting pose'),
+    ('等待解锁', 'WAIT ARM'),
+    ('等待起飞', 'WAIT TAKEOFF'),
+    ('起飞中', 'TAKEOFF'),
+    ('悬停，规划航点', 'HOVER PLAN'),
+    ('悬停搜索', 'HOVER SEARCH'),
+    ('对准 H 标', 'ALIGN H'),
+    ('已对准，降落', 'ALIGNED LAND'),
+    ('已完成，降落', 'DONE LAND'),
+    ('完成，降落', 'DONE LAND'),
+    ('画面丢失', 'NO IMAGE'),
+    ('MIPI 画面中断', 'MIPI frame lost'),
+    ('未发现 H 标', 'NO H MARK'),
+    ('模型未加载', 'NO MODEL'),
+    ('YOLO 未加载', 'YOLO not loaded'),
+    ('推理失败', 'INFER FAIL'),
+    ('无目标', 'NO TARGET'),
+    ('已居中', 'CENTERED'),
+    ('相对H', 'vs H'),
+    ('请先启动对应深度相机驱动', 'start depth camera first'),
+    ('导航中', 'NAV'),
+    ('避障中', 'AVOID'),
+    ('阶段', 'phase'),
+    ('相对高', 'rel_alt'),
+    ('前方深', 'front'),
+    ('轨迹点', 'trail'),
+    ('高度', 'ALT'),
+    ('航点', 'WP'),
+    ('位移', 'MOVE'),
+    ('障碍', 'OBS'),
+    ('安全', 'CLEAR'),
+    ('急停', 'STOP'),
+    ('避障', 'AVOID'),
     ('刹前', 'SLOW'),
+    ('上升', 'UP'),
+    ('下降', 'DOWN'),
+    ('悬停', 'HOVER'),
+    ('升', 'U'),
+    ('降', 'D'),
+    ('前', 'FWD'),
+    ('后', 'BACK'),
+    ('左', 'LEFT'),
+    ('右', 'RIGHT'),
 )
 
 
@@ -57,7 +98,6 @@ def _ascii_hud(text):
     out = text
     for cn, en in _CN_ASCII:
         out = out.replace(cn, en)
-    # OpenCV putText 无法画剩余汉字，去掉以免整行变成 ??????
     out = ''.join(ch if ord(ch) < 128 else '' for ch in out)
     return out.strip() or '?'
 

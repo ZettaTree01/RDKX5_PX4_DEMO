@@ -636,7 +636,10 @@ class DepthNavNode(Node):
     def _tick_viz(self):
         if self.depth_m is None:
             if self.out.enabled():
-                self.out.output(self._waiting_panel())
+                if self._last_visual is not None:
+                    self.out.output(self._last_visual)
+                else:
+                    self.out.output(self._waiting_panel())
             return
         depth = self.depth_m
         color = self.color_bgr

@@ -40,25 +40,10 @@ from frame_output import FrameOutput
 from indoor import AVOID_VEL_MPS, RelAlt
 from yolo_detector import YoloDetector
 from depth_rgbd import image_msg_to_bgr
+from cn_hud import put_cn_lines
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 # 机体 FLU：+x 前、+y 左、+z 上
-_CN_FONT_PATHS = (
-    '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
-    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-    '/usr/share/fonts/truetype/arphic/uming.ttc',
-    'C:/Windows/Fonts/msyh.ttc',
-    'C:/Windows/Fonts/simhei.ttf',
-)
-_CN_FONT_CACHE = {}
-_CN_ASCII = (
-    ('上升', 'UP'), ('下降', 'DOWN'), ('升', 'U'), ('降', 'D'),
-    ('高度', 'ALT'), ('位移', 'MOVE'), ('障碍', 'OBS'),
-    ('安全', 'CLEAR'), ('无目标', 'NO TARGET'), ('悬停', 'HOLD'),
-    ('等待解锁', 'WAIT ARM'), ('起飞中', 'TAKEOFF'),
-    ('模型未加载', 'NO MODEL'), ('推理失败', 'INFER FAIL'),
-    ('前', 'FWD'), ('后', 'BACK'), ('左', 'LEFT'), ('右', 'RIGHT'),
-)
 
 SAFE_DISTANCE = 4.0      # 米，室内从该距离开始按比例后退（越近越快）
 MAX_VEL = AVOID_VEL_MPS  # m/s，室内调试已乘 INDOOR_SPEED_SCALE
@@ -88,69 +73,6 @@ REAL_WIDTHS = {
     'potted plant': 0.30, 'dog': 0.25, 'cat': 0.20, 'backpack': 0.30,
 }
 DEFAULT_WIDTH = 0.40
-
-
-def _cn_font(size):
-    key = int(size)
-    if key in _CN_FONT_CACHE:
-        return _CN_FONT_CACHE[key]
-    try:
-        from PIL import ImageFont
-    except ImportError:
-        _CN_FONT_CACHE[key] = None
-        return None
-    for path in _CN_FONT_PATHS:
-        if not os.path.isfile(path):
-            continue
-        try:
-            font = ImageFont.truetype(path, key)
-            _CN_FONT_CACHE[key] = font
-            return font
-        except Exception:
-            continue
-    _CN_FONT_CACHE[key] = None
-    return None
-
-
-def _ascii_hud(text):
-    out = text
-    for cn, en in _CN_ASCII:
-        out = out.replace(cn, en)
-    return out
-
-
-def _put_cn_lines(img, lines, origin=(10, 8), size=22):
-    """lines: [(text, bgr), ...] 或 (text, bgr, (x, y))。优先中文字体。"""
-    if not lines:
-        return
-    font = _cn_font(size)
-    x0, y0 = origin
-    positioned = []
-    y = y0
-    for item in lines:
-        if len(item) == 3:
-            text, color, xy = item
-        else:
-            text, color = item
-            xy = (x0, y)
-            y += size + 8
-        positioned.append((text, color, xy))
-    if font is None:
-        for text, color, xy in positioned:
-            cv2.putText(img, _ascii_hud(text), (xy[0], xy[1] + 18),
-                        FONT, 0.62, color, 2)
-        return
-    from PIL import Image, ImageDraw
-    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    pil = Image.fromarray(rgb)
-    draw = ImageDraw.Draw(pil)
-    for text, color, xy in positioned:
-        rgb_c = (int(color[2]), int(color[1]), int(color[0]))
-        x, y = xy
-        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            draw.text((x + dx, y + dy), text, font=font, fill=(0, 0, 0))
-        draw.text(xy, text, font=font, fill=rgb_c)
-    img[:] = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
 
 
 def _move_dirs(vx, vy, vz, max_vel):
@@ -414,7 +336,7 @@ class ObstacleAvoidanceNode(Node):
             lines.append((note, (0, 0, 255)))
         elif distance is not None:
             lines.append((f'安全 {distance:.1f} m', (0, 255, 0)))
-        _put_cn_lines(vis, lines, origin=(10, 6), size=22)
+        put_cn_lines(vis, lines, origin=(10, 6), size=22)
         self.out.output(vis)
 
     def _status(self, text):

@@ -660,6 +660,9 @@ class TargetFollowNode(Node):
             left = self.color_bgr.copy()
         elif self._last_visual is not None:
             left = self._last_visual.copy()
+        if left is not None and self.depth_m is None:
+            self.out.output(left)
+            return
         if self.depth_m is None or left is None:
             self.out.output(self._waiting_panel())
             return
