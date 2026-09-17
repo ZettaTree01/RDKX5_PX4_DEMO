@@ -11,11 +11,11 @@
   2) 画面占比：框高占画面 50% 时视为约 0.8 m（补偿 USB 广角估远）。
 反向速度与距离成比例：刚进入安全区约 20% 最大速度，贴脸时到 100%。
 画面只画检测框与避障箭头；高度/阶段/距离集中在底部中文状态栏。
-室内暗场先 CLAHE 再推理（USB 摄像头欠曝时避免「无目标」）。
+室内暗场先 CLAHE 再推理。
 
 推理与图像回调解耦：回调只缓存最新帧，定时器按 infer-hz 推理。
 
-室内调试：05 launch 默认拉起台架位姿模拟；arm:=true 后先爬升拉转速，
+室内台架：05 launch 默认拉起台架位姿模拟；arm:=true 后先爬升拉转速，
 再悬停保持转速，靠近障碍按距离加速，最高 300 r/min。
 画面高度为相对开机位置，避免室内气压计显示几十米。
 """
@@ -47,7 +47,7 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
 # 机体 FLU：+x 前、+y 左、+z 上
 
 SAFE_DISTANCE = 4.0      # 米，室内从该距离开始按比例后退（越近越快）
-MAX_VEL = AVOID_VEL_MPS  # m/s，室内调试已乘 INDOOR_SPEED_SCALE
+MAX_VEL = AVOID_VEL_MPS  # m/s，室内台架已乘 INDOOR_SPEED_SCALE
 IMAGE_TIMEOUT = 0.5      # 秒，图像断流超时归零
 DEFAULT_HFOV = 90.0     # 度，常见 USB 广角；原 60° 会把近处椅子估成 2 m+
 DEFAULT_INFER_HZ = 10.0

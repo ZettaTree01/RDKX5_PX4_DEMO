@@ -75,7 +75,7 @@ bash /app/zettatree_demo/09_depth_nav/run.sh arm:=true start_stereo:=false
 bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 ```
 
-> `source:=stereonet` 时 `ensure_mipi_bpu.sh` **失败即退出**（不再 `|| true`），避免无图仍启动规划。
+> Stereonet 模式下 MIPI 未就绪则退出，避免无图启动规划。
 
 ## RViz2（完整 EGO）
 

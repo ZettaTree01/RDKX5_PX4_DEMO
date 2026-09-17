@@ -71,10 +71,10 @@ def generate_launch_description():
             description='true 才切 OFFBOARD 并解锁（台架必须拆桨）'),
         DeclareLaunchArgument(
             'altitude', default_value='0.1',
-            description='起飞高度（米）；室内调试默认实飞 2 m 的 1/20'),
+            description='起飞高度（米）；室内台架默认实飞 2 m 的 1/20'),
         DeclareLaunchArgument(
             'max_speed', default_value='0.1',
-            description='模拟器跟随限速（m/s）；室内调试默认实飞 2 的 1/20'),
+            description='模拟器跟随限速（m/s）；室内台架默认实飞 2 的 1/20'),
         DeclareLaunchArgument(
             'rate', default_value='5.0',
             description='位姿回灌频率（Hz）；57600 UART 默认 5，与 05–08 一致'),

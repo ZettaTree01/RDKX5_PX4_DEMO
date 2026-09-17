@@ -955,7 +955,7 @@ def main(args=None):
     parser = argparse.ArgumentParser(description='PX4 OFFBOARD 起飞与设定点管理器')
     parser.add_argument(
         '--altitude', type=float, default=TAKEOFF_ALT_M,
-        help=f'起飞高度（米），室内调试默认 {TAKEOFF_ALT_M}（实飞 2 m 的 1/20）')
+        help=f'起飞高度（米），室内台架默认 {TAKEOFF_ALT_M}（实飞 2 m 的 1/20）')
     parser.add_argument('--arm', action='store_true', help='允许切 OFFBOARD 并解锁')
     parser.add_argument('--no-arm', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--bench', action='store_true',

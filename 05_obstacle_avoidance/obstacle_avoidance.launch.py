@@ -108,7 +108,7 @@ def generate_launch_description():
             description='true 才切 OFFBOARD 并解锁（电机才会转）'),
         DeclareLaunchArgument(
             'altitude', default_value=INDOOR_ALT,
-            description='起飞高度（米）；室内调试默认实飞 2 m 的 1/20'),
+            description='起飞高度（米）；室内台架默认实飞 2 m 的 1/20'),
         DeclareLaunchArgument(
             'bench', default_value='true',
             description='true 拉起台架位姿模拟并写 EKF 外部视觉参数（室内无 GPS）'),
@@ -129,7 +129,7 @@ def generate_launch_description():
             description='开始按比例后退的距离（米）；越近速度越大'),
         DeclareLaunchArgument(
             'max_vel', default_value=INDOOR_MAX_VEL,
-            description='避障反向速度上限（m/s）；室内调试默认实飞 0.5 的 1/20'),
+            description='避障反向速度上限（m/s）；室内台架默认实飞 0.5 的 1/20'),
         DeclareLaunchArgument(
             'score_thres', default_value='0.25',
             description='置信度阈值（概率域，官方默认 0.25）'),

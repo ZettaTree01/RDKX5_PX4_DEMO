@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""板端画面中文叠加。无字体时退回 ASCII，避免 OpenCV putText 显示 ??????。"""
+"""板端画面中文叠加。无中文字体时退回 ASCII。"""
 import os
 
 import cv2

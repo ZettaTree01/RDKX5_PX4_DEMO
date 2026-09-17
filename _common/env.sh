@@ -21,7 +21,7 @@ unset _ament_nounset
 export ROS_LOG_DIR="${ROS_LOG_DIR:-/tmp/zettatree_roslog}"
 mkdir -p "$ROS_LOG_DIR" 2>/dev/null || true
 
-# RDK X5 桌面常缺 vs-drm；与例程 8 RViz 相同走软件渲染
+# 无 vs-drm 时使用软件 OpenGL
 if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
   if [ ! -e /usr/lib/aarch64-linux-gnu/dri/vs-drm_dri.so ] \
     && [ ! -e /usr/lib/dri/vs-drm_dri.so ]; then

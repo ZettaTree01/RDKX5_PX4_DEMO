@@ -1,6 +1,6 @@
 # 10 目标跟随（行人 / 动态目标）
 
-## 🚀 快速开始
+## 快速开始
 
 ```bash
 cd /app/zettatree_demo/10_target_follow
@@ -51,7 +51,7 @@ RViz：与例程 8 相同的官方彩色点云 + Depth Color + 目标/跟随点 
 
 室内默认 `bench:=true`。**必须拆桨**。
 
-## 📁 文件结构
+## 文件结构
 
 ```
 10_target_follow/
@@ -63,7 +63,7 @@ RViz：与例程 8 相同的官方彩色点云 + Depth Color + 目标/跟随点 
 └── target_follow.rviz        # RViz 可视化配置
 ```
 
-## 🔧 脚本说明
+## 脚本说明
 
 ### setup.sh — 环境配置（板端执行一次）
 
@@ -73,14 +73,14 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 
 自动完成：环境加载 → GS130W mipi 检查（用 Stereonet 时）→ `planner:=ego` 时 source EGO 工作空间 → `ros2 launch`。Ctrl+C / 异常退出自动经 UART 强制上锁（`_common/run_flight.sh`）。
 
-## 💡 参数说明
+## 参数说明
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `planner` | `ego` | `ego`=完整 C++ EGO（`/move_base_simple/goal`）；`direct`=位置直跟 |
 | `source` | `stereonet` | 深度源；`simulate`=虚拟行人绕圈 |
 | `start_stereo` | `true` | 是否拉起例程 8 的 Stereonet |
-| `arm` | `false` | 是否解锁（台架强制解锁 21196） |
+| `arm` | `false` | `true` 才解锁（必须拆桨） |
 | `bench` | `true` | 台架模式（起飞斜坡不看气压计） |
 | `standoff` | `0.8` | 跟随保持距离（米） |
 | `follow_z` | `0.1` | 跟随高度（米） |
@@ -92,7 +92,7 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 | `snapshot` | 空 | 无显示器时的 JPEG 快照路径 |
 | `rviz` | `true` | RViz2（官方彩色点云 + 目标/路径；`rviz:=false` 省 CPU） |
 
-## 🔌 话题说明
+## 话题说明
 
 | 话题 | 说明 |
 |------|------|
@@ -125,6 +125,4 @@ ros2 topic hz /move_base_simple/goal
 ros2 topic hz /position_cmd
 ros2 topic echo /drone/follow/target
 ```
-
-把本仓库同步到机载 `/app/zettatree_demo` 即可（`git clone` / `rsync` / `scp`）。
 

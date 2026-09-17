@@ -370,7 +370,7 @@ def render_modeling_panel(
                     0.55, (235, 235, 245), 1, cv2.LINE_AA)
         cv2.arrowedLine(top, (cx_n, 38), (cx_n, 20), (210, 210, 225), 2,
                         tipLength=0.4)
-    # 对齐 hobot_stereonet「3D Point」：OpenCV 俯视为主，不依赖 RViz 稠密点云
+    # OpenCV 俯视「3D Point」，与 Stereonet 官方可视化一致
     top_label = '3D POINT (N=heading)' if rot else '3D POINT (TOP)'
     cv2.putText(top, top_label, (8, 22),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1, cv2.LINE_AA)

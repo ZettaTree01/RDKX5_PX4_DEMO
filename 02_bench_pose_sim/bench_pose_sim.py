@@ -131,7 +131,7 @@ def main(args=None):
         description='台架位姿模拟器（拆桨、室内无位置源）')
     parser.add_argument(
         '--max-speed', type=float, default=BENCH_FOLLOW_MPS,
-        help=f'跟随设定点的限速（m/s），室内调试默认 {BENCH_FOLLOW_MPS}')
+        help=f'跟随设定点的限速（m/s），室内台架默认 {BENCH_FOLLOW_MPS}')
     parser.add_argument('--rate', type=float, default=20.0,
                         help='位姿发布频率，Hz（UART 57600 不宜超过 20）')
     parsed, ros_args = parser.parse_known_args(args)

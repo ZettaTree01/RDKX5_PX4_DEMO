@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """共享画面输出器：弹窗显示 / 周期快照，无显示环境自动回退。
 
-被 _common/camera_node.py 与 04/06/07 的任务节点共用：
+被 _common/camera_node.py 与 04/05/06/07 的任务节点共用：
   - show=True 时弹窗显示，窗口内按 q / Esc 停止画面输出（不退出节点）；
   - 无显示环境（headless）或显式传 snapshot 路径时，按周期写 JPEG 快照；
   - 快照默认写到 fallback_path，各例程路径不同，避免互相覆盖。

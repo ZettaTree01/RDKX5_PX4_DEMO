@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 例程 8/9/10 共用：有 DISPLAY 时启动 rviz2；缺 vs-drm 则走 llvmpipe。
+# 有 DISPLAY 时启动 rviz2；无 vs-drm 时使用软件 OpenGL。
 set -e
 CFG="${1:-}"
 if [ -z "$CFG" ] || [ ! -f "$CFG" ]; then
