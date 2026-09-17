@@ -16,7 +16,7 @@
 
 ## 画面输出
 
-例程 **03/04/05** 统一使用**普通 USB 摄像头**（默认 `/dev/video0`），
+例程 03–07 统一使用**普通 USB 摄像头**（默认 `/dev/video0`），
 经 `_common/camera_node.py` 发布 `/camera/image_raw`。不是 GS130W / MIPI。
 
 `run.sh` 默认带 `--show`，按当前环境自动选择输出方式：

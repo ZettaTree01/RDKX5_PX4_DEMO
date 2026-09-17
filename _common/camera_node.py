@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """USB 摄像头发布 /camera/image_raw（bgr8）。文档 3.1。
 
-共享组件：例程 03/04/05 默认使用普通 USB（非 GS130W）；
+共享组件：例程 03–07 默认使用普通 USB（非 GS130W）；
 03_camera_node 是它的独立示例用法。
 
 OpenCV VideoCapture(0) 对应 /dev/video0。

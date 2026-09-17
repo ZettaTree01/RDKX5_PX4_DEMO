@@ -2,9 +2,10 @@
 
 ## 例程说明
 
-文档 4.2。起飞完成后**悬停搜索**，摄像头识别直升机停机坪 **H 标**，把 H
+文档 4.2。**普通 USB 摄像头**（默认 `/dev/video0`，与例程 03–06 相同）。
+起飞完成后**悬停搜索**，识别直升机停机坪 **H 标**，把 H
 对准画面中心并保持约 1 秒后，请求降落：台架下降后强制上锁停转；
-实飞切 `AUTO.LAND`。
+实飞切 `AUTO.LAND`。本例程不用 GS130W / MIPI。
 
 H 标不在 COCO YOLO 80 类里，本例程用轮廓 + H 模板相关、圆形 ROI 识别。
 图像断流 0.5 秒后悬停、不降落。
@@ -60,7 +61,8 @@ scp sunrise@<X5_IP>:/tmp/tracking_snapshot.jpg .
 | `arm` | `false` | `true` 才切 OFFBOARD 并解锁（电机才会转） |
 | `bench` | `true` | 室内台架位姿模拟 + 写 EKF 外部视觉参数 |
 | `altitude` | `0.1` | 起飞高度（米）；室内默认实飞 2 m 的 1/20 |
-| `camera_device` | `/dev/video0` | 摄像头设备 |
+| `camera_source` | `usb` | 普通 USB 摄像头（本例程默认） |
+| `camera_device` | `/dev/video0` | USB 设备节点 |
 | `show` | `true` | 对准画面输出（弹窗/快照） |
 | `max_vel` | `0.05` | 对准平移速度上限（m/s） |
 

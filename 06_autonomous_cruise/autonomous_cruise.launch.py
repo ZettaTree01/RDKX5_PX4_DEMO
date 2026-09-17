@@ -69,7 +69,7 @@ def generate_launch_description():
         condition=IfCondition(bench),
     )
 
-    # 视觉相机：默认 auto（MIPI 优先），供巡航节点 YOLO 与画面预览
+    # 普通 USB 摄像头：供巡航节点 YOLO 与画面预览（与例程 03–05/07 一致）
     vision_cam = ExecuteProcess(
         cmd=[
             'bash', os.path.join(COMMON, 'start_vision_cam.sh'),
@@ -106,11 +106,11 @@ def generate_launch_description():
             'bench', default_value='true',
             description='true 拉起台架位姿模拟并写 EKF 外部视觉参数（室内无 GPS）'),
         DeclareLaunchArgument(
-            'camera_source', default_value='auto',
-            description='auto=GS130W MIPI 优先（BPU YOLO 前置）；usb=USB 摄像头'),
+            'camera_source', default_value='usb',
+            description='usb=普通 USB 摄像头（本例程默认）；mipi/auto 可选 GS130W'),
         DeclareLaunchArgument(
             'device', default_value='/dev/video0',
-            description='USB 回退设备；auto 时仍先尝试 MIPI'),
+            description='USB 摄像头设备（默认 /dev/video0）'),
         DeclareLaunchArgument(
             'show', default_value='true',
             description='巡航画面输出（弹窗/快照，无显示环境自动回退）'),

@@ -2,7 +2,7 @@
 
 面向 **多旋翼无人机 + 飞控主板 ZP-PV601**：例程部署在 RDK X5 机载计算机 `/app/zettatree_demo`，飞行指令经 MAVROS 发给飞控主板。
 
-ROS2 例程用各目录 `run.sh`（会 `source` TogetheROS Humble）。视觉与深度默认走 **BPU 量化算力**（YOLO / Stereonet `.bin`）。例程 **3/4/5** 使用普通 USB 单目；例程 6/7 及深度链路（8/9/10）默认 GS130W MIPI，USB 为回退。
+ROS2 例程用各目录 `run.sh`（会 `source` TogetheROS Humble）。视觉与深度默认走 **BPU 量化算力**（YOLO / Stereonet `.bin`）。例程 **3–7** 使用普通 USB 单目；深度链路（8/9/10）默认 GS130W MIPI。
 
 每个例程一个目录，自带 `run.sh` / launch / 配置；被多个例程复用的运行时组件统一放在 `_common/`。
 
@@ -30,8 +30,8 @@ bash run.sh --yes
 | `03_camera_node` | 3.1 | 例程3：普通 USB 摄像头发图 | USB `/dev/video0` |
 | `04_object_detection` | 3.1 | 例程4：USB + BPU 量化 YOLO | USB 相机 + BPU `.bin` |
 | `05_obstacle_avoidance` | 3.2 | 例程5：USB 单目 + BPU YOLO 识别避障 | USB 相机 + BPU + ZP-PV601 |
-| `06_autonomous_cruise` | 4.1 | 例程6：自主巡航拍照（BPU YOLO 叠框） | ZP-PV601 + MIPI/USB |
-| `07_target_tracking` | 4.2 | 例程7：停机坪 H 标对准降落 | 相机 + ZP-PV601 |
+| `06_autonomous_cruise` | 4.1 | 例程6：USB + 自主巡航拍照（BPU YOLO 叠框） | USB 相机 + ZP-PV601 |
+| `07_target_tracking` | 4.2 | 例程7：USB + 停机坪 H 标对准降落 | USB 相机 + ZP-PV601 |
 | `08_depth_camera` | 4.3 | 例程8：GS130W **BPU Stereonet** 深度/点云 | MIPI 双目 GS130W |
 | `09_depth_nav` | 4.4 | 例程9：深度导航（Stereonet BPU + EGO） | 深度相机 + ZP-PV601，**拆桨** |
 | `10_target_follow` | 4.5 | 例程10：目标跟随（BPU YOLO + Stereonet） | 深度相机 + BPU + ZP-PV601，**拆桨** |
@@ -41,8 +41,7 @@ bash run.sh --yes
 
 | 能力 | 默认路径 | 回退 |
 |------|----------|------|
-| 单目预览 / 检测（例程 3/4/5） | USB `/dev/video0` → `/camera/image_raw` | — |
-| 巡航/跟踪等视觉输入（6/7） | GS130W MIPI 左目 → `/camera/image_raw` | USB `/dev/video0` |
+| 单目预览 / 检测 / 巡航 / H 标（例程 3–7） | USB `/dev/video0` → `/camera/image_raw` | — |
 | 目标检测 | Horizon BPU YOLO `.bin`（NV12） | 无模型则跳过叠框 |
 | 双目深度 / 点云 | `hobot_stereonet` 量化 Stereonet | 无 MIPI 双目则不可用 |
 | 停机坪 H | OpenCV 轮廓 + 模板（无官方量化模型） | — |
@@ -136,9 +135,9 @@ bash /app/zettatree_demo/06_autonomous_cruise/run.sh fcu_url:=/dev/ttyACM0:11520
 | `offboard_manager.py` | 2.7 | OFFBOARD 管理器：起飞、降落上锁、设定点仲裁 | `02`/`05`–`07`/`09`–`11` |
 | `yolo_detector.py` | 3.1 / 3.2 | **BPU** 量化 YOLO：NV12 + DFL + NMS | `04`/`05`/`06`/`10` |
 | `helipad_h.py` | 4.2 | 停机坪 H 标识别（轮廓 + H 模板；无官方量化模型） | `07_target_tracking` |
-| `camera_node.py` | 3.1 | USB 摄像头发布 `/camera/image_raw` | 例程 **3/4/5** 默认 |
-| `mipi_camera_bridge.py` | 3.1 | GS130W 左目 → `/camera/image_raw` | `06`/`07` 及深度链路默认 |
-| `start_vision_cam.sh` | 3.1 | 视觉相机入口 | `03`/`04`/`05` 默认 USB；`06`/`07` MIPI 优先 |
+| `camera_node.py` | 3.1 | USB 摄像头发布 `/camera/image_raw` | 例程 **3–7** 默认 |
+| `mipi_camera_bridge.py` | 3.1 | GS130W 左目 → `/camera/image_raw` | 可选；深度链路见例程 8 |
+| `start_vision_cam.sh` | 3.1 | 视觉相机入口 | `03`–`07` 默认 USB；`mipi`/`auto` 可选 |
 | `frame_output.py` | 3.1 | 共享画面输出器：弹窗 / 快照 | `03`–`07` 任务节点 |
 | `cn_hud.py` | — | 中文 HUD 叠字 | `05`/`07` 等画面输出 |
 | `depth_rgbd.py` | 4.3 / 4.4 | 深度图 ↔ 点云与板端投影可视化 | `08`/`09`/`10` |

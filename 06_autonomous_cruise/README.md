@@ -2,9 +2,10 @@
 
 ## 例程说明
 
-文档 4.1。起飞稳定后以当前位置为原点巡航 **0.05 m × 0.05 m** 方形（室内为实飞 1 m 的 1/20），
+文档 4.1。**普通 USB 摄像头**（默认 `/dev/video0`，与例程 03–05/07 相同）
+发布 `/camera/image_raw`。起飞稳定后以当前位置为原点巡航 **0.05 m × 0.05 m** 方形（室内为实飞 1 m 的 1/20），
 到点拍照，完成后通过 OFFBOARD 管理器请求 `AUTO.LAND`。飞行过程中持续输出
-**巡航画面**（叠加航点进度）。
+**巡航画面**（叠加航点进度）。本例程不用 GS130W / MIPI。
 
 室内无 GPS 时 launch **默认启用台架位姿模拟**（`bench:=true`），否则飞控拒绝解锁。
 解锁与 05/07/08 共用 `_common/offboard_manager.py`（强制解锁）：先爬升拉转速，
@@ -42,10 +43,10 @@ bash /app/zettatree_demo/06_autonomous_cruise/run.sh \
 巡航节点会等 `/drone/status/airborne` 变为 `true` 后才规划航点。
 台架解锁后管理器先爬升约 2 秒，再把 airborne 置为 true；悬停保持转速后开始巡航。
 
-抓拍用的摄像头默认自动探测能出图的 `/dev/video*`；需手动指定时：
+抓拍用普通 USB 摄像头（默认 `/dev/video0`）；换设备时：
 
 ```bash
-bash /app/zettatree_demo/06_autonomous_cruise/run.sh arm:=true device:=/dev/video0
+bash /app/zettatree_demo/06_autonomous_cruise/run.sh arm:=true device:=/dev/video1
 ```
 
 ## 巡航画面输出
@@ -72,7 +73,8 @@ scp sunrise@<X5_IP>:/tmp/cruise_snapshot.jpg .
 | `arm` | `false` | `true` 才切 OFFBOARD 并解锁（电机才会转） |
 | `bench` | `true` | 室内台架位姿模拟 + 写 EKF 外部视觉参数 |
 | `altitude` | `0.1` | 起飞高度（米）；室内默认实飞 2 m 的 1/20 |
-| `device` | `auto` | 抓拍摄像头；`auto` 表示自动探测 |
+| `camera_source` | `usb` | 普通 USB 摄像头（本例程默认） |
+| `device` | `/dev/video0` | USB 设备节点 |
 | `show` | `true` | 巡航画面输出（弹窗/快照，无显示环境自动回退） |
 
 ## 仅运行本节点

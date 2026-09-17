@@ -73,8 +73,7 @@ def generate_launch_description():
         condition=IfCondition(bench),
     )
 
-    # 视觉相机：供 H 标检测
-    # 视觉相机：供 H 标检测
+    # 普通 USB 摄像头：供 H 标检测（与例程 03–06 一致）
     camera_node = ExecuteProcess(
         cmd=[
             'bash', os.path.join(COMMON, 'start_vision_cam.sh'),
@@ -86,7 +85,6 @@ def generate_launch_description():
         name='vision_cam',
     )
 
-    # H 标对准降落任务节点
     # H 标对准降落任务节点
     task = ExecuteProcess(
         cmd=[
@@ -113,11 +111,11 @@ def generate_launch_description():
             'bench', default_value='true',
             description='true 拉起台架位姿模拟并写 EKF 外部视觉参数（室内无 GPS）'),
         DeclareLaunchArgument(
-            'camera_source', default_value='auto',
-            description='auto=GS130W MIPI 优先；usb=USB 摄像头'),
+            'camera_source', default_value='usb',
+            description='usb=普通 USB 摄像头（本例程默认）；mipi/auto 可选 GS130W'),
         DeclareLaunchArgument(
             'camera_device', default_value='/dev/video0',
-            description='USB 回退设备'),
+            description='USB 摄像头设备（默认 /dev/video0）'),
         DeclareLaunchArgument(
             'show', default_value='true',
             description='对准画面输出（弹窗/快照，无显示环境自动回退）'),

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 视觉例程统一相机入口 → /camera/image_raw。
-# 例程 03/04/05 显式 --source usb（普通 USB）；06/07 等可用 auto/mipi（GS130W 优先）。
+# 例程 03–07 显式 --source usb（普通 USB）；深度/可选场景可用 mipi 或 auto。
 #
 #   bash start_vision_cam.sh --source usb --device /dev/video0 --show
 #   bash start_vision_cam.sh --source mipi
