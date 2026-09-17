@@ -31,7 +31,7 @@ bash /app/zettatree_demo/08_depth_camera/run.sh
 | 窗口（默认模式） | 内容 |
 |------|------|
 | OpenCV 左 | 官方深彩 |
-| OpenCV 右 | 俯视点云（`panel_mode:=depth` 时不做转换） |
+| OpenCV 右 | 当前帧俯视点云（`panel_mode:=depth` 可关掉） |
 | RViz | `/StereoNetNode/stereonet_pointcloud2`，Fixed Frame=`camera_link` |
 
 板端需 **桌面终端**（有 `DISPLAY`）才能弹 OpenCV / RViz。

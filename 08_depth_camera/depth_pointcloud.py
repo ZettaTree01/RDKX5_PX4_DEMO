@@ -79,7 +79,7 @@ class DepthPointCloudNode(Node):
                  info_topic=None, combine_topic=None, show=True, snapshot=None,
                  snapshot_period=5.0, stride=4, max_range=5.0,
                  baseline_m=0.07917, stereo_layout='tb', stereo_max_width=320,
-                 rotate_cw=90, panel_mode='depth', stereo_matcher='bm',
+                 rotate_cw=90, panel_mode='depth_cloud', stereo_matcher='bm',
                  stereo_period=1.0, min_range=0.4, opencv_fallback=False,
                  map_enable=False, publish_filtered_cloud=True, publish_hz=4.0):
         super().__init__('depth_pointcloud')
@@ -129,6 +129,7 @@ class DepthPointCloudNode(Node):
             PointCloud2, '/drone/map/points', _QOS_STEREO_DEPTH)
         self._last_visual = None
         self._last_depth_msg = None
+        self._cloud_pts = np.zeros((0, 3), dtype=np.float32)
         self._map_pts = np.zeros((0, 3), dtype=np.float32)
         self._map_voxel = 0.05
         self._map_max = 10000
@@ -233,37 +234,65 @@ class DepthPointCloudNode(Node):
                 f'官方深彩显示失败: {exc}', throttle_duration_sec=2.0)
 
     def _on_stereo_points(self, msg: PointCloud2):
-        """官方彩色点云。RViz 直接订官方话题；仅在需要时做轻量处理。"""
+        """官方彩色点云。RViz 订官方话题；OpenCV 俯视用当前帧 xyz。"""
         self._stereo_points_ok = True
-        if not self.publish_filtered_cloud and not self.map_enable and not self.out.enabled():
-            return
         now = time.monotonic()
         if now - getattr(self, '_last_pts_pub', 0.0) < self._pub_min_dt:
             return
         self._last_pts_pub = now
         try:
-            # depth 模式只显示深彩图，不再为无用的 3D panel 做 PointCloud2→numpy 转换。
-            need_xyz = self.map_enable or self.out.enabled() and self.panel_mode != 'depth'
-            if not need_xyz:
+            need_view = self.out.enabled() and self.panel_mode != 'depth'
+            if not self.publish_filtered_cloud and not self.map_enable and not need_view:
                 return
-            out = self._downsample_cloud_xyz(msg, max_points=6000)
+            pts = self._stereo_cloud_to_optical(msg, max_points=4000)
+            if pts.size:
+                self._cloud_pts = pts
             if self.publish_filtered_cloud:
+                out = self._downsample_cloud_xyz(msg, max_points=6000)
                 self.cloud_pub.publish(out)
-            pts = self._xyz_array_from_cloud(out)
             if self.map_enable and pts.size:
                 self._update_map(pts)
                 map_msg = points_to_cloud2_xyz(
                     self._map_pts, stamp=msg.header.stamp,
                     frame_id=msg.header.frame_id or 'camera_link')
                 self.map_pub.publish(map_msg)
-            if self.out.enabled():
+            if need_view:
                 self._show_depth_map_panel()
             self.get_logger().info(
-                f'official points {msg.width * max(1, msg.height)}->{out.width}, '
-                f'map={self._map_pts.shape[0]}', throttle_duration_sec=3.0)
+                f'official points {msg.width * max(1, msg.height)} '
+                f'view={self._cloud_pts.shape[0]}',
+                throttle_duration_sec=3.0)
         except Exception as exc:
             self.get_logger().warn(
                 f'点云/地图失败: {exc}', throttle_duration_sec=2.0)
+
+    def _stereo_cloud_to_optical(self, msg: PointCloud2, max_points=4000) -> np.ndarray:
+        """Stereonet ROS 相机系 (x前 y左 z上) → 光学系 (x右 y下 z前)，供俯视。"""
+        names = {f.name: f for f in msg.fields}
+        if not all(k in names for k in ('x', 'y', 'z')):
+            return np.zeros((0, 3), dtype=np.float32)
+        off = {k: names[k].offset for k in ('x', 'y', 'z')}
+        step = int(msg.point_step)
+        n = int(msg.width) * max(1, int(msg.height))
+        if n <= 0:
+            return np.zeros((0, 3), dtype=np.float32)
+        stride = max(1, (n + max_points - 1) // max_points)
+        idx = np.arange(0, n, stride, dtype=np.int32)
+        buf = np.frombuffer(msg.data, dtype=np.uint8)
+        flat = buf[: n * step].reshape(n, step)
+        xr = flat[idx, off['x']:off['x'] + 4].view(np.float32).reshape(-1)
+        yr = flat[idx, off['y']:off['y'] + 4].view(np.float32).reshape(-1)
+        zr = flat[idx, off['z']:off['z'] + 4].view(np.float32).reshape(-1)
+        ok = np.isfinite(xr) & np.isfinite(yr) & np.isfinite(zr)
+        r2 = xr * xr + yr * yr + zr * zr
+        ok &= (r2 >= self.min_range * self.min_range) & (
+            r2 <= self.max_range * self.max_range)
+        xr, yr, zr = xr[ok], yr[ok], zr[ok]
+        pts = np.empty((xr.size, 3), dtype=np.float32)
+        pts[:, 0] = -yr
+        pts[:, 1] = -zr
+        pts[:, 2] = xr
+        return pts
 
     def _xyz_array_from_cloud(self, msg: PointCloud2) -> np.ndarray:
         if msg.width <= 0:
@@ -313,7 +342,7 @@ class DepthPointCloudNode(Node):
             self._map_pts = np.zeros((0, 3), dtype=np.float32)
 
     def _show_depth_map_panel(self):
-        """OpenCV：深彩；非 depth 模式再拼三维俯视。"""
+        """OpenCV：深彩 | 三维俯视（当前帧点云）。"""
         if not self.out.enabled():
             return
         now = time.monotonic()
@@ -326,21 +355,20 @@ class DepthPointCloudNode(Node):
         if self.panel_mode == 'depth':
             self.out.output(left)
             return
-        # 俯视：x→右, z→前（图像上）
-        if self._map_pts.size:
+        pts = self._cloud_pts if self._cloud_pts.size else self._map_pts
+        if pts.size:
             pts_plot = np.stack(
-                [self._map_pts[:, 0], self._map_pts[:, 2], -self._map_pts[:, 1]],
-                axis=1)
+                [pts[:, 0], pts[:, 2], -pts[:, 1]], axis=1)
         else:
             pts_plot = np.zeros((0, 3), dtype=np.float32)
         right = _project_top(pts_plot, size=max(240, left.shape[0]), span=6.0)
-        cv2.putText(right, f'MAP3D n={self._map_pts.shape[0]}', (8, 40),
+        cv2.putText(right, f'TOP n={int(pts.shape[0])}', (8, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
         h = min(left.shape[0], right.shape[0])
         left_r = cv2.resize(left, (int(left.shape[1] * h / left.shape[0]), h))
         right_r = cv2.resize(right, (h, h))
         panel = np.hstack([left_r, right_r])
-        cv2.putText(panel, 'DEPTH | MAP3D', (10, 24),
+        cv2.putText(panel, 'DEPTH | TOP', (10, 24),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (240, 240, 240), 2, cv2.LINE_AA)
         self.out.output(panel)
 
@@ -659,9 +687,9 @@ def main(args=None):
                         help='仅 mipi_stereo：bm 更快')
     parser.add_argument('--stereo-period', type=float, default=1.0,
                         help='双目处理周期（秒）')
-    parser.add_argument('--panel-mode', default='depth',
+    parser.add_argument('--panel-mode', default='depth_cloud',
                         choices=['depth', 'cloud', 'depth_cloud', 'full'],
-                        help='depth=深度伪彩图示；depth_cloud=深度+俯视；full=三栏')
+                        help='depth=仅深彩；depth_cloud=深彩+俯视（默认）；full=三栏')
     parser.add_argument('--rotate-cw', type=int, default=0,
                         choices=[0, 90, 180, 270],
                         help='深度/彩色顺时针旋转；stereonet 官方链路请用 0')

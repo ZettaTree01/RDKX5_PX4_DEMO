@@ -125,7 +125,7 @@ run_full() {
   _wait_combine
   exec ros2 launch "$SCRIPT_DIR/depth_camera.launch.py" \
     source:=stereonet start_mipi:=false start_stereonet:=true \
-    show:=true rviz:=true map:=false \
+    show:=true rviz:=true map:=false panel_mode:=depth_cloud \
     baseline_m:=0.07917 rotate_cw:=0 \
     min_range:=0.3 max_range:=5.0 snapshot:=none \
     ${STEREO_OVERRIDE:+"$STEREO_OVERRIDE"} \

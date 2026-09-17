@@ -243,8 +243,8 @@ def generate_launch_description():
             'rotate_cw', default_value='0',
             description='仅 mipi_stereo'),
         DeclareLaunchArgument(
-            'panel_mode', default_value='depth',
-            description='depth|depth_cloud|cloud|full'),
+            'panel_mode', default_value='depth_cloud',
+            description='depth|depth_cloud|cloud|full；默认深彩+俯视点云'),
         DeclareLaunchArgument('stereo_matcher', default_value='bm'),
         DeclareLaunchArgument('stereo_max_width', default_value='320'),
         DeclareLaunchArgument('stereo_period', default_value='1.0'),
