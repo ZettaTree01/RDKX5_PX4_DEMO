@@ -2,8 +2,9 @@
 
 ## 例程说明
 
-文档 3.2。订阅 `/camera/image_raw`，检测障碍并估算最近距离，按
-**「越近退得越快」** 向 OFFBOARD 管理器发机体 FLU 反向速度。图像断流 0.5 秒后零速。
+文档 3.2。**普通 USB 摄像头**（默认 `/dev/video0`）发布 `/camera/image_raw`，
+BPU YOLO 检测障碍并估算最近距离，按 **「越近退得越快」** 向 OFFBOARD 管理器发机体 FLU 反向速度。
+本例程**不用深度相机 / GS130W**（深度链路见例程 8/9）。图像断流 0.5 秒后零速。
 
 距离取较小值：小孔成像（类别高度 / 框高）与画面占比（框高占半屏 ≈ 0.8 m）。
 反向速度与距离成比例：刚进入安全区约 20% 最大速度，贴脸时到 100%。
@@ -48,7 +49,8 @@ bash /app/zettatree_demo/05_obstacle_avoidance/run.sh \
 | `arm` | `false` | `true` 才切 OFFBOARD 并解锁（电机才会转） |
 | `bench` | `true` | 室内台架位姿模拟 + 写 EKF 外部视觉参数 |
 | `altitude` | `0.1` | 起飞高度（米）；室内默认实飞 2 m 的 1/20 |
-| `camera_device` | `/dev/video0` | 摄像头设备 |
+| `camera_source` | `usb` | 普通 USB 摄像头；不要用深度相机 |
+| `camera_device` | `/dev/video0` | USB 设备节点 |
 | `show` | `true` | 避障画面输出（弹窗/快照） |
 | `hfov` | `90.0` | USB 广角默认 90°（60° 会把近处目标估远） |
 | `safe_distance` | `4.0` | 开始按比例后退的距离（米）；越近退得越快 |

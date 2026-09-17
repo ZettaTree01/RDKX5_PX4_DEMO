@@ -22,6 +22,8 @@ _CN_ASCII = (
     ('等待 Stereonet 深度图', 'Waiting Stereonet depth'),
     ('等待 Stereonet / 行人检测', 'Waiting Stereonet / person'),
     ('等待 Stereonet（GS130W / 例程8）', 'Waiting Stereonet'),
+    ('本例程为单目 USB，不用深度相机', 'USB camera, not depth'),
+    ('等待 USB 摄像头', 'Waiting USB camera'),
     ('等待相机画面', 'Waiting camera'),
     ('等待 MIPI 拼接图', 'Waiting MIPI combine'),
     ('等待模拟深度', 'wait sim depth'),

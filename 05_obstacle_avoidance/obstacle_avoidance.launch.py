@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""05 摄像头识别避障：拉起 MAVROS、台架模拟、OFFBOARD 管理器、相机与避障节点。"""
+"""05 摄像头识别避障：USB 单目 + BPU YOLO。不用深度相机。"""
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -113,11 +113,11 @@ def generate_launch_description():
             'bench', default_value='true',
             description='true 拉起台架位姿模拟并写 EKF 外部视觉参数（室内无 GPS）'),
         DeclareLaunchArgument(
-            'camera_source', default_value='auto',
-            description='auto=GS130W MIPI 优先（YOLO 上 BPU）；usb=USB 摄像头'),
+            'camera_source', default_value='usb',
+            description='usb=普通 USB 摄像头（本例程默认，非深度相机）；mipi=GS130W 左目'),
         DeclareLaunchArgument(
             'camera_device', default_value='/dev/video0',
-            description='USB 回退设备'),
+            description='USB 摄像头设备（默认 /dev/video0）'),
         DeclareLaunchArgument(
             'show', default_value='true',
             description='避障画面输出（弹窗/快照，无显示环境自动回退）'),

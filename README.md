@@ -29,7 +29,7 @@ bash run.sh --yes
 | `02_bench_pose_sim` | 2.8 | 例程2：台架位姿模拟器（室内无 GPS、拆桨验证用） | ZP-PV601，**拆桨** |
 | `03_camera_node` | 3.1 | 例程3：默认 GS130W MIPI 发图（USB 可回退） | MIPI 或 `/dev/video0` |
 | `04_object_detection` | 3.1 | 例程4：BPU 量化 YOLO + 官方解码 | BPU `.bin` + 相机 |
-| `05_obstacle_avoidance` | 3.2 | 例程5：BPU YOLO 识别避障 | BPU + 相机 + ZP-PV601 |
+| `05_obstacle_avoidance` | 3.2 | 例程5：USB 单目 + BPU YOLO 识别避障 | USB 相机 + BPU + ZP-PV601 |
 | `06_autonomous_cruise` | 4.1 | 例程6：自主巡航拍照（BPU YOLO 叠框） | ZP-PV601 + MIPI/USB |
 | `07_target_tracking` | 4.2 | 例程7：停机坪 H 标对准降落 | 相机 + ZP-PV601 |
 | `08_depth_camera` | 4.3 | 例程8：GS130W **BPU Stereonet** 深度/点云 | MIPI 双目 GS130W |

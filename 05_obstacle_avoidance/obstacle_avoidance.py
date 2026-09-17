@@ -11,7 +11,7 @@
   2) 画面占比：框高占画面 50% 时视为约 0.8 m（补偿 USB 广角估远）。
 反向速度与距离成比例：刚进入安全区约 20% 最大速度，贴脸时到 100%。
 画面只画检测框与避障箭头；高度/阶段/距离集中在底部中文状态栏。
-室内暗场先 CLAHE 再推理，避免 MIPI 欠曝导致「无目标」。
+室内暗场先 CLAHE 再推理（USB 摄像头欠曝时避免「无目标」）。
 
 推理与图像回调解耦：回调只缓存最新帧，定时器按 infer-hz 推理。
 
@@ -248,9 +248,9 @@ class ObstacleAvoidanceNode(Node):
     def _waiting_panel(self):
         vis = np.full((360, 640, 3), 36, np.uint8)
         put_cn_lines(vis, [
-            ('等待相机画面…', (230, 230, 230)),
-            ('GS130W MIPI → /camera/image_raw', (180, 180, 185)),
-            ('或 camera_source:=usb', (180, 180, 185)),
+            ('等待 USB 摄像头…', (230, 230, 230)),
+            ('/dev/video0 → /camera/image_raw', (180, 180, 185)),
+            ('本例程为单目 USB，不用深度相机', (180, 180, 185)),
         ], origin=(24, 48), size=22)
         yolo = 'OK' if self.detector.loaded else '未加载'
         return self._with_banner(vis, [
