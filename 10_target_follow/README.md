@@ -39,7 +39,7 @@ YOLO 行人框 → 深度取 3D → 计算 standoff 跟随点
         ↓
  /move_base_simple/goal  →  EGO（避障 B 样条）→ traj_server → OFFBOARD
 OpenCV：检测画面（行人框）| 三维俯视（N=初始机头）| 底部中文状态栏
-RViz：与例程 8 相同的官方彩色点云 + Depth Color + 目标/跟随点 + occ_viz + 规划 Marker
+RViz：例程8同款官方彩色点云 + world 点云 + 膨胀占据 + 规划 Marker + 目标/跟随点
 ```
 
 | 层级 | 内容 |
@@ -90,7 +90,7 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 | `min_score` | `0.25` | YOLO person 置信度阈值（与例程 04 同默认） |
 | `show` | `true` | OpenCV HUD 窗口；无 DISPLAY 自动改写快照 |
 | `snapshot` | 空 | 无显示器时的 JPEG 快照路径 |
-| `rviz` | `true` | RViz2（官方彩色点云 + 目标/路径；`rviz:=false` 省 CPU） |
+| `rviz` | `true` | RViz2（例程8点云建模 + 规划路线；`rviz:=false` 省 CPU） |
 
 ## 话题说明
 

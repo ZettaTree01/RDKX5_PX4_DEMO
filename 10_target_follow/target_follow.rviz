@@ -65,13 +65,6 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: false
       Value: true
-    - Class: rviz_default_plugins/TF
-      Enabled: false
-      Name: TF
-      Show Arrows: false
-      Show Axes: false
-      Show Names: false
-      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -81,7 +74,7 @@ Visualization Manager:
       Axis: Z
       Channel Name: z
       Class: rviz_default_plugins/PointCloud2
-      Color: 255; 80; 80
+      Color: 220; 220; 220
       Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
@@ -90,19 +83,19 @@ Visualization Manager:
       Max Intensity: 4096
       Min Color: 0; 0; 0
       Min Intensity: 0
-      Name: GridMapOccupancy
+      Name: cloud_world
       Position Transformer: XYZ
       Selectable: false
       Size (Pixels): 3
-      Size (m): 0.1
-      Style: Boxes
+      Size (m): 0.04
+      Style: Points
       Topic:
         Depth: 1
         Durability Policy: Volatile
         Filter size: 1
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /drone/ego/occ_viz
+        Value: /drone/ego/cloud_world
       Use Fixed Frame: true
       Use rainbow: false
       Value: true
@@ -115,7 +108,7 @@ Visualization Manager:
       Axis: Z
       Channel Name: z
       Class: rviz_default_plugins/PointCloud2
-      Color: 255; 180; 0
+      Color: 255; 170; 40
       Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
@@ -128,8 +121,8 @@ Visualization Manager:
       Position Transformer: XYZ
       Selectable: false
       Size (Pixels): 2
-      Size (m): 0.12
-      Style: Boxes
+      Size (m): 0.08
+      Style: Flat Squares
       Topic:
         Depth: 1
         Durability Policy: Volatile
@@ -137,6 +130,40 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /grid_map/occupancy_inflate
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: true
+    - Alpha: 0.7
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: z
+      Class: rviz_default_plugins/PointCloud2
+      Color: 80; 220; 120
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 4096
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: OccViz
+      Position Transformer: XYZ
+      Selectable: false
+      Size (Pixels): 3
+      Size (m): 0.06
+      Style: Points
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        Filter size: 1
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /drone/ego/occ_viz
       Use Fixed Frame: true
       Use rainbow: false
       Value: true
@@ -177,10 +204,10 @@ Visualization Manager:
       Enabled: true
       Name: FollowTarget
       Color: 80; 255; 80
-      Shaft Length: 0.25
-      Shaft Radius: 0.03
-      Head Length: 0.1
-      Head Radius: 0.06
+      Shaft Length: 0.35
+      Shaft Radius: 0.04
+      Head Length: 0.12
+      Head Radius: 0.08
       Shape: Arrow
       Topic:
         Depth: 5
@@ -194,10 +221,10 @@ Visualization Manager:
       Enabled: true
       Name: FollowGoal
       Color: 80; 180; 255
-      Shaft Length: 0.25
-      Shaft Radius: 0.03
-      Head Length: 0.1
-      Head Radius: 0.06
+      Shaft Length: 0.35
+      Shaft Radius: 0.04
+      Head Length: 0.12
+      Head Radius: 0.08
       Shape: Arrow
       Topic:
         Depth: 5
@@ -212,11 +239,11 @@ Visualization Manager:
       Class: rviz_default_plugins/Path
       Color: 0; 220; 255
       Enabled: true
-      Head Diameter: 0.1
-      Head Length: 0.1
-      Length: 0.2
+      Head Diameter: 0.12
+      Head Length: 0.12
+      Length: 0.25
       Line Style: Lines
-      Line Width: 0.03
+      Line Width: 0.06
       Name: PathHistory
       Offset:
         X: 0
@@ -224,9 +251,9 @@ Visualization Manager:
         Z: 0
       Pose Color: 255; 85; 255
       Pose Style: None
-      Radius: 0.03
-      Shaft Diameter: 0.05
-      Shaft Length: 0.1
+      Radius: 0.04
+      Shaft Diameter: 0.06
+      Shaft Length: 0.12
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -239,7 +266,7 @@ Visualization Manager:
   Global Options:
     Background Color: 48; 48; 48
     Fixed Frame: world
-    Frame Rate: 10
+    Frame Rate: 15
   Name: root
   Tools:
     - Class: rviz_default_plugins/Interact
@@ -259,25 +286,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 5.0
+      Distance: 3.0
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.08
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0
+        X: 1.5
         Y: 0
-        Z: 0.5
+        Z: 0.2
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05
       Name: Current View
       Near Clip Distance: 0.01
-      Pitch: 0.65
+      Pitch: 0.35
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
-      Yaw: 0.85
+      Yaw: 0.0
     Saved: ~
 Window Geometry:
-  Height: 860
-  Width: 1280
+  Height: 900
+  Width: 1400

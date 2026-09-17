@@ -11,7 +11,7 @@ Stereonet 点云 → world 点云 → grid_map → ego_planner_node（A*+B样条
                                               ↓
                                     PositionCommand → offboard
 OpenCV：官方深彩 | **3D POINT** 俯视 | 底部状态栏
-RViz2：与例程 8 相同的官方彩色点云 + Depth Color + OccViz / grid_map / EGO Marker
+RViz2：例程8同款官方彩色点云 + world 点云建模 + 膨胀占据 + EGO 规划 Marker
 ```
 
 | 层级 | 内容 |
@@ -82,10 +82,11 @@ bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 | Display | Topic |
 |---------|-------|
 | Depth Color | `/StereoNetNode/stereonet_visual` |
-| stereonet_pointcloud2 | `/StereoNetNode/stereonet_pointcloud2`（RGB8，Reliable） |
+| stereonet_pointcloud2 | `/StereoNetNode/stereonet_pointcloud2`（RGB8，与例程8相同） |
+| cloud_world | `/drone/ego/cloud_world`（变换到 world 的建模点云） |
+| GridMapInflate | `/grid_map/occupancy_inflate`（EGO 占据，半透明） |
 | OccViz | `/drone/ego/occ_viz` |
-| GridMapOccupancy | `/grid_map/occupancy` |
-| GridMapInflate | `/grid_map/occupancy_inflate` |
+| OptimalBspline / AStarList | `/optimal_list`、`/a_star_list`（规划路线） |
 | OptimalBspline | `/optimal_list` |
 | AStarList | `/a_star_list` |
 | PathHistory | `/drone/nav/path_history` |
