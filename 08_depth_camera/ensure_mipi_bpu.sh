@@ -22,14 +22,16 @@ CALIB="${MIPI_CALIB_FILE:-/opt/tros/humble/lib/mipi_cam/config/SC132gs_dual_cali
 NEED_RESTART=0
 
 _mipi_log_init() {
+  # 优先可写目录；按 UID 分文件，避免 root 预跑后 sunrise 写不进日志（变成 /dev/null）
   local d="${ROS_LOG_DIR:-/tmp/zettatree_roslog}"
-  mkdir -p "$d" 2>/dev/null || d="/tmp"
-  MIPI_LOG="${MIPI_LOG:-$d/mipi_cam_gs130w.log}"
+  mkdir -p "$d" 2>/dev/null || true
+  chmod a+rwxt "$d" 2>/dev/null || true
+  MIPI_LOG="${MIPI_LOG:-$d/mipi_cam_gs130w_${UID:-0}.log}"
   if ! ( : > "$MIPI_LOG" ) 2>/dev/null; then
-    rm -f "$MIPI_LOG" 2>/dev/null || true
-    MIPI_LOG="$d/mipi_cam_gs130w_${UID:-0}.log"
+    MIPI_LOG="/tmp/mipi_cam_gs130w_${UID:-0}.log"
     if ! ( : > "$MIPI_LOG" ) 2>/dev/null; then
-      MIPI_LOG="/dev/null"
+      MIPI_LOG="/tmp/mipi_cam_gs130w_$$.log"
+      : > "$MIPI_LOG" 2>/dev/null || MIPI_LOG="/dev/null"
     fi
   fi
 }
@@ -66,10 +68,11 @@ _mipi_has_frames() {
 }
 
 _mipi_stop() {
+  local p left
   for p in $(_mipi_pids); do
     kill -TERM "$p" 2>/dev/null || sudo -n kill -TERM "$p" 2>/dev/null || true
   done
-  pkill -TERM -f 'ros2 run mipi_cam mipi_cam' 2>/dev/null || true
+  # 勿对含本脚本路径的命令行用 pkill -f（会误杀 ensure / pkill 自身）
   for _ in 1 2 3 4 5; do
     _mipi_pids | grep -q . || break
     sleep 1
@@ -77,8 +80,14 @@ _mipi_stop() {
   for p in $(_mipi_pids); do
     kill -9 "$p" 2>/dev/null || sudo -n kill -9 "$p" 2>/dev/null || true
   done
-  pkill -9 -f 'ros2 run mipi_cam mipi_cam' 2>/dev/null || true
   sleep 1
+  left=$(_mipi_pids)
+  if [ -n "$left" ]; then
+    echo "[GS130W mipi] ERROR: 无法结束占用相机的进程(pid: $left)。" >&2
+    echo "  若此前用 root 跑过例程，请先执行: sudo bash /app/zettatree_demo/_common/stop_nav_stack.sh" >&2
+    echo "  或: sudo kill -9 $left" >&2
+    exit 1
+  fi
 }
 
 if ! _mipi_owner_ok; then
@@ -126,15 +135,24 @@ if [ "$NEED_RESTART" = "1" ]; then
     --log-level warn \
     >"$MIPI_LOG" 2>&1 &
   MIPI_RUN_PID=$!
+  # ros2 run 拉起二进制常需数秒；前几秒只等进程，不误报「已退出」
   for i in $(seq 1 30); do
     sleep 1
-    if ! _mipi_launch_alive && ! pgrep -f '/opt/tros/humble/lib/mipi_cam/mipi_cam' >/dev/null 2>&1; then
-      if [ "$i" -lt 6 ]; then
+    if pgrep -f '/opt/tros/humble/lib/mipi_cam/mipi_cam' >/dev/null 2>&1 \
+      || _mipi_launch_alive; then
+      :
+    else
+      # 前 3 秒允许尚未出现二进制；之后视为启动失败
+      if [ "$i" -le 3 ]; then
         echo "[GS130W mipi] 初始化 ${i}/30"
         continue
       fi
       echo "[GS130W mipi] 进程已退出，见 $MIPI_LOG" >&2
-      tail -n 50 "$MIPI_LOG" >&2 || true
+      if [ "$MIPI_LOG" = "/dev/null" ]; then
+        echo "[GS130W mipi] 日志目录不可写；请: sudo chmod 1777 /tmp/zettatree_roslog" >&2
+      else
+        tail -n 80 "$MIPI_LOG" >&2 || true
+      fi
       exit 1
     fi
     if [ "$i" -lt 6 ]; then
@@ -148,7 +166,7 @@ if [ "$NEED_RESTART" = "1" ]; then
     echo "[GS130W mipi] 等待画面 ${i}/30"
   done
   echo "[GS130W mipi] 警告: 未见帧，见 $MIPI_LOG" >&2
-  tail -n 50 "$MIPI_LOG" >&2 || true
+  tail -n 80 "$MIPI_LOG" >&2 || true
   exit 1
 fi
 

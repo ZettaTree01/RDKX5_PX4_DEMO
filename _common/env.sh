@@ -36,6 +36,8 @@ unset _ament_nounset _ZT_ROOT
 # 避免默认/被 stereonet 改写到 /userdata/.roslog（常无写权限）
 export ROS_LOG_DIR="${ROS_LOG_DIR:-/tmp/zettatree_roslog}"
 mkdir -p "$ROS_LOG_DIR" 2>/dev/null || true
+# root 与 sunrise 共用；sticky+可写，避免日志落到 /dev/null
+chmod a+rwxt "$ROS_LOG_DIR" 2>/dev/null || true
 
 # 有显示且无 vs-drm 时使用软件 OpenGL
 if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
