@@ -2,8 +2,9 @@
 
 ## 例程说明
 
-文档 3.1。ROS 节点订阅 `/camera/image_raw`，加载板端量化 YOLO `.bin`，
-做**端到端推理**并输出**推理画面**（检测框 + 类别 / 置信度 + 状态提示）。
+文档 3.1。**普通 USB 摄像头**（默认 `/dev/video0`，与例程 03/05 相同）
+发布 `/camera/image_raw`，加载板端量化 YOLO `.bin`，做**端到端推理**并输出
+**推理画面**（检测框 + 类别 / 置信度 + 状态提示）。本例程不用 GS130W / MIPI。
 
 推理链路与官方示例对齐
 （`/app/pydev_demo/02_detection_sample/03_ultralytics_yolov8`）：
@@ -30,10 +31,10 @@ BGR 帧 → letterbox 缩放到模型输入 → NV12(h*w*1.5) → hbm_runtime.ru
 bash /app/zettatree_demo/04_object_detection/run.sh
 ```
 
-换摄像头 / 调阈值：
+换 USB 设备 / 调阈值：
 
 ```bash
-bash /app/zettatree_demo/04_object_detection/run.sh camera_source:=usb camera_device:=/dev/video1
+bash /app/zettatree_demo/04_object_detection/run.sh camera_device:=/dev/video1
 bash /app/zettatree_demo/04_object_detection/run.sh score_thres:=0.4 nms_thres:=0.5
 ```
 
@@ -68,7 +69,8 @@ bash /app/zettatree_demo/04_object_detection/run.sh show:=false
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `camera_device` | `/dev/video0` | 摄像头设备 |
+| `camera_source` | `usb` | 普通 USB 摄像头（本例程默认） |
+| `camera_device` | `/dev/video0` | USB 设备节点 |
 | `show` | `true` | 推理画面输出（弹窗/快照，无显示环境自动回退） |
 | `score_thres` | `0.25` | 置信度阈值（概率域，官方默认 0.25） |
 | `nms_thres` | `0.45` | NMS IoU 阈值（官方默认 0.45） |

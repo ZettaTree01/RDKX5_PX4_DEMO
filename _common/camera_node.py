@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """USB 摄像头发布 /camera/image_raw（bgr8）。文档 3.1。
 
-共享组件，放在 _common/，由需要图像的各例程 launch 直接拉起；
-03_camera_node 是它的示例用法。
+共享组件：例程 03/04/05 默认使用普通 USB（非 GS130W）；
+03_camera_node 是它的独立示例用法。
 
-OpenCV VideoCapture(0) 对应 /dev/video0，适合 USB 摄像头。
-MIPI CSI（接口 5）不要用本节点硬开，请用 TROS mipi_cam。
+OpenCV VideoCapture(0) 对应 /dev/video0。
+MIPI CSI / GS130W 请用 mipi_camera_bridge / TROS mipi_cam，不要用本节点硬开。
 
 约 15 fps，降低 USB 与 ROS 未压缩图像带宽，减轻画面卡顿。
 Ctrl+C 时释放 VideoCapture，避免占用 /dev/video0。

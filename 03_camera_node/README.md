@@ -16,8 +16,8 @@
 
 ## 画面输出
 
-`run.sh` 默认 **GS130W MIPI 左目**（板上 ISP），没有双目再回退 USB `/dev/video0`。
-强制 USB：`bash run.sh --source usb --device /dev/video0`。
+例程 **03/04/05** 统一使用**普通 USB 摄像头**（默认 `/dev/video0`），
+经 `_common/camera_node.py` 发布 `/camera/image_raw`。不是 GS130W / MIPI。
 
 `run.sh` 默认带 `--show`，按当前环境自动选择输出方式：
 
@@ -56,4 +56,4 @@ source /app/zettatree_demo/_common/env.sh
 ros2 topic hz /camera/image_raw --qos-reliability best_effort
 ```
 
-> MIPI CSI 摄像头（接口 5）不要用本节点硬开，请改用 TROS 的 `mipi_cam`。
+> MIPI CSI / GS130W（接口 5）不走本例程；深度与双目见例程 8/9/10。

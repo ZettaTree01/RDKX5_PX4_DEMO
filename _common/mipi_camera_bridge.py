@@ -2,8 +2,8 @@
 """GS130W MIPI 左目 → `/camera/image_raw`（bgr8）。
 
 优先订 `/image_left_raw`；没有则拆 `/image_combine_raw` 上半幅（dual_combine=2）。
-视觉例程 03/04/05/06/07 默认走这条链路，YOLO 才能吃到 ISP 出的 NV12 再上 BPU。
-USB 摄像头仍用 camera_node.py。
+例程 06/07 等默认走这条链路（ISP NV12 再上 BPU）。
+例程 03/04/05 用普通 USB（camera_node.py），不走本桥。
 """
 from __future__ import annotations
 

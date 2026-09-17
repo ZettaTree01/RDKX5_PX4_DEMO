@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 视觉例程统一相机入口：默认 GS130W MIPI（ISP）→ /camera/image_raw，失败再 USB。
-# YOLO / 巡航 / 避障走 BPU 量化模型时，应尽量吃 MIPI NV12，而不是 USB MJPEG 解码。
+# 视觉例程统一相机入口 → /camera/image_raw。
+# 例程 03/04/05 显式 --source usb（普通 USB）；06/07 等可用 auto/mipi（GS130W 优先）。
 #
-#   bash start_vision_cam.sh                 # auto：MIPI 优先
-#   bash start_vision_cam.sh --source mipi
 #   bash start_vision_cam.sh --source usb --device /dev/video0 --show
+#   bash start_vision_cam.sh --source mipi
+#   bash start_vision_cam.sh                 # auto：MIPI 优先，失败再 USB
 #
 # 其余参数原样转给 camera_node.py / mipi_camera_bridge.py（如 --show）。
 set -e
