@@ -86,13 +86,12 @@ bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 |---------|-------|
 | Depth Color | `/StereoNetNode/stereonet_visual` |
 | stereonet_pointcloud2 | `/StereoNetNode/stereonet_pointcloud2`（RGB8，与例程8相同，Fixed Frame=`camera_link`） |
-| GridMapInflate | `/grid_map/occupancy_inflate`（半透明点，不挡彩色点云） |
+| GridMapInflate | `/grid_map/occupancy_inflate`（橙色膨胀占据，**默认关闭**；建模看彩色点云即可，需要看规划障碍时再勾选） |
 | OptimalBspline / AStarList | `/optimal_list`、`/a_star_list`（规划路线，frame=`world`） |
-| OptimalBspline | `/optimal_list` |
-| AStarList | `/a_star_list` |
 | PathHistory | `/drone/nav/path_history` |
 
 Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 TF 即可显示；规划 Marker 在 `world`，由 `pose_to_odom` 提供 `world→camera_link`）。省 CPU 时 `rviz:=false`。
+**不必**为建模接入橙色点云：规划建图在后台走 `/drone/ego/cloud_world`，与 RViz 是否显示 inflate 无关。
 
 ## 参数
 

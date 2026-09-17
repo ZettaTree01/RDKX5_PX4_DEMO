@@ -21,7 +21,13 @@ _term_then_kill '/app/zettatree_demo/08_depth_camera/depth_camera.launch.py'
 # 任务与桥接
 _term_then_kill '/app/zettatree_demo/09_depth_nav/depth_nav.py'
 _term_then_kill '/app/zettatree_demo/10_target_follow/target_follow.py'
+_term_then_kill 'target_follow.launch.py'
+_term_then_kill 'target_follow.py'
 _term_then_kill '/app/zettatree_demo/09_depth_nav/bridges/'
+_term_then_kill 'cloud_cam_to_world.py'
+_term_then_kill 'pose_to_odom.py'
+_term_then_kill 'poscmd_to_offboard.py'
+_term_then_kill 'ego_occ_viz.py'
 _term_then_kill '/app/zettatree_demo/08_depth_camera/depth_pointcloud.py'
 _term_then_kill '/app/zettatree_demo/08_depth_camera/show_stereo_views.py'
 _term_then_kill '/app/zettatree_demo/08_depth_camera/pub_stereo_caminfo.py'
@@ -54,6 +60,10 @@ for pat in \
   'depth_camera.launch.py' \
   'depth_nav.py' \
   'target_follow.py' \
+  'cloud_cam_to_world.py' \
+  'pose_to_odom.py' \
+  'poscmd_to_offboard.py' \
+  'ego_occ_viz.py' \
   '/app/zettatree_demo/09_depth_nav/bridges/' \
   'ego_planner_node' \
   'traj_server' \

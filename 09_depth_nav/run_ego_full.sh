@@ -35,9 +35,7 @@ if [ "$WANT_STEREO" = "1" ]; then
 fi
 
 echo "[09] 完整 C++ EGO-Planner + Stereonet；OpenCV 深彩|三维；默认开 RViz"
-# 前台 launch：Ctrl+C 由 run_flight.sh trap 杀栈并限时上锁（勿用 exec）
-ros2 launch "$SCRIPT_DIR/ego_full.launch.py" \
+# 用 _flight_run：Ctrl+C 立刻杀 launch 进程组（勿用 exec / 裸前台 launch）
+_flight_run ros2 launch "$SCRIPT_DIR/ego_full.launch.py" \
   source:=stereonet start_stereo:=true rviz:=true \
   "$@"
-_rc=$?
-exit "$_rc"

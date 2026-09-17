@@ -98,7 +98,7 @@ Visualization Manager:
         Value: /grid_map/occupancy_inflate
       Use Fixed Frame: true
       Use rainbow: false
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Marker
       Enabled: true
       Name: OptimalBspline

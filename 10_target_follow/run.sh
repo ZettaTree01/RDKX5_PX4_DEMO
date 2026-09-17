@@ -46,4 +46,5 @@ else
   echo "[10] 直接位置跟随（planner:=direct，无避障规划器对照）"
 fi
 
-ros2 launch "$SCRIPT_DIR/target_follow.launch.py" "$@"
+# 用 _flight_run：Ctrl+C 立刻杀 launch 进程组，再 stop_nav + 上锁
+_flight_run ros2 launch "$SCRIPT_DIR/target_follow.launch.py" "$@"

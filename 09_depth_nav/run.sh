@@ -35,7 +35,7 @@ if [ "$BACKEND" = "python" ]; then
   if [ "$WANT_STEREO" = "1" ]; then
     bash /app/zettatree_demo/08_depth_camera/ensure_mipi_bpu.sh
   fi
-  ros2 launch "$SCRIPT_DIR/depth_nav.launch.py" \
+  _flight_run ros2 launch "$SCRIPT_DIR/depth_nav.launch.py" \
     source:=stereonet start_stereo:=true ego:=true rviz:=true \
     "${FILTERED[@]}"
   exit $?
