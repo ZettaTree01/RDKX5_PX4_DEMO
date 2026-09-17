@@ -171,7 +171,7 @@ run_rviz_only() {
   fi
   echo "[08] 模式=rviz：Fixed Frame=camera_link"
   echo "[08] Topic=/StereoNetNode/stereonet_pointcloud2（请另开: bash .../run.sh）"
-  exec rviz2 -d "$CFG"
+  exec bash "$SCRIPT_DIR/../_common/rviz_run.sh" "$CFG"
 }
 
 case "$MODE" in

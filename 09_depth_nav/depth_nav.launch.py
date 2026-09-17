@@ -2,7 +2,7 @@
 """09 深度导航：MAVROS + Stereonet + EGO 局部地图/路径 + OpenCV。
 
 OpenCV：官方深彩 | 三维俯视（不变）。
-RViz2：官方彩色点云 + EGO 占据地图 + A*/最优路径。
+RViz2：与例程8相同的官方彩色点云 + EGO 占据地图 + A*/最优路径。
 参考：https://github.com/Kinang2/Ego-Planner-System
 """
 import os
@@ -44,7 +44,7 @@ def generate_launch_description():
     tip = LogInfo(msg=[
         '例程9（Python A* 对照）：局部地图+路径 + Stereonet。',
         ' 完整 C++ EGO 请用 run.sh（默认）或 run_ego_full.sh。',
-        ' OpenCV=深彩|三维；RViz=点云地图+规划路径。arm:=false 监视。',
+        ' OpenCV=深彩|三维；RViz=官方彩色点云+占据地图+路径。arm:=false 监视。',
     ])
 
     mavros = IncludeLaunchDescription(
@@ -168,10 +168,8 @@ def generate_launch_description():
 
     rviz_node = ExecuteProcess(
         cmd=[
-            'bash', '-lc',
-            'if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then '
-            'echo "[rviz] 无 DISPLAY，跳过"; exit 0; fi; '
-            f'exec rviz2 -d {SCRIPT_DIR}/depth_nav.rviz',
+            'bash', os.path.join(COMMON, 'rviz_run.sh'),
+            os.path.join(SCRIPT_DIR, 'depth_nav.rviz'),
         ],
         output='screen',
         name='rviz_depth_nav',
@@ -198,7 +196,7 @@ def generate_launch_description():
             description='启动 EGO 局部占据地图 + A* 路径节点'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='RViz2：彩色点云 + 占据地图 + 规划路径'),
+            description='默认 true：RViz 订官方 stereonet_pointcloud2 + 占据地图；省 CPU 时 rviz:=false'),
         DeclareLaunchArgument('max_vel', default_value=INDOOR_MAX_VEL),
         DeclareLaunchArgument('safe_distance', default_value='1.2'),
         DeclareLaunchArgument('stop_distance', default_value='0.45'),

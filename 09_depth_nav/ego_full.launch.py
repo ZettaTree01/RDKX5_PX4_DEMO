@@ -6,7 +6,7 @@
   MAVROS pose → pose_to_odom → /odom_world
   ego_planner_node → B 样条 → traj_server → PositionCommand
   → poscmd_to_offboard → /drone/setpoint_position/local
-OpenCV：深彩 | 三维俯视（不变）；RViz：官方点云 + grid_map + 规划 Marker。
+OpenCV：深彩 | 三维俯视（不变）；RViz：与例程8相同的官方彩色点云 + grid_map + 规划 Marker。
 """
 import os
 
@@ -48,7 +48,7 @@ def generate_launch_description():
 
     tip = LogInfo(msg=[
         '例程9：完整 C++ EGO-Planner + Stereonet。',
-        ' OpenCV=深彩|3D POINT 俯视；RViz=OccViz+路径(不订稠密彩色点云)。',
+        ' OpenCV=深彩|3D POINT 俯视；RViz=官方彩色点云+OccViz+路径。',
         ' 需先 bash setup_full_ego.sh。arm:=false 监视；拆桨后 arm:=true。',
     ])
 
@@ -299,10 +299,8 @@ def generate_launch_description():
 
     rviz_node = ExecuteProcess(
         cmd=[
-            'bash', '-lc',
-            'if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then '
-            'echo "[rviz] 无 DISPLAY，跳过"; exit 0; fi; '
-            f'exec rviz2 -d {SCRIPT_DIR}/ego_full.rviz',
+            'bash', os.path.join(COMMON, 'rviz_run.sh'),
+            os.path.join(SCRIPT_DIR, 'ego_full.rviz'),
         ],
         output='screen',
         name='rviz_ego_full',
@@ -326,7 +324,7 @@ def generate_launch_description():
         DeclareLaunchArgument('show', default_value='true'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='RViz2：OccViz/grid_map/Marker（不含 stereonet 稠密点云）'),
+            description='默认 true：RViz 订官方 stereonet_pointcloud2 + OccViz；省 CPU 时 rviz:=false'),
         DeclareLaunchArgument('max_vel', default_value=INDOOR_MAX_VEL),
         DeclareLaunchArgument('safe_distance', default_value='1.2'),
         DeclareLaunchArgument('stop_distance', default_value='0.45'),

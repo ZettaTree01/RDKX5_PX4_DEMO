@@ -11,13 +11,13 @@ Stereonet 点云 → world 点云 → grid_map → ego_planner_node（A*+B样条
                                               ↓
                                     PositionCommand → offboard
 OpenCV：官方深彩 | **3D POINT** 俯视 | 底部状态栏
-RViz2：OccViz / grid_map / EGO Marker（**不订** stereonet 稠密彩色点云）
+RViz2：与例程 8 相同的官方彩色点云 + Depth Color + OccViz / grid_map / EGO Marker
 ```
 
 | 层级 | 内容 |
 |------|------|
 | OpenCV | 深彩 + **3D POINT** 俯视；底部中文状态栏 |
-| RViz2 | OccViz + grid_map + Marker（无稠密点云，省 CPU） |
+| RViz2 | 官方 `stereonet_pointcloud2`（RGB8）+ 深彩 + OccViz / grid_map / Marker |
 | 控制 | `traj_server` 位姿设定点；深度安全层过近时速度覆盖 |
 
 可选：`backend:=python` 退回板端 Python A* 同构实现（教学对照）。
@@ -81,6 +81,8 @@ bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 
 | Display | Topic |
 |---------|-------|
+| Depth Color | `/StereoNetNode/stereonet_visual` |
+| stereonet_pointcloud2 | `/StereoNetNode/stereonet_pointcloud2`（RGB8，Reliable） |
 | OccViz | `/drone/ego/occ_viz` |
 | GridMapOccupancy | `/grid_map/occupancy` |
 | GridMapInflate | `/grid_map/occupancy_inflate` |
@@ -88,11 +90,7 @@ bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 | AStarList | `/a_star_list` |
 | PathHistory | `/drone/nav/path_history` |
 
-Fixed Frame = **`world`**。稠密 `/StereoNetNode/stereonet_pointcloud2` 已从默认 RViz 移除；需要时另开：
-
-```bash
-bash /app/zettatree_demo/08_depth_camera/run.sh rviz
-```
+Fixed Frame = **`world`**（`pose_to_odom` 同时发 `world → camera_link`，官方点云与例程 8 同源）。省 CPU 时 `rviz:=false`。
 
 ## 参数
 
@@ -100,7 +98,7 @@ bash /app/zettatree_demo/08_depth_camera/run.sh rviz
 |------|------|------|
 | （默认） | full | 完整 C++ EGO |
 | `backend:=python` | — | Python A* 同构 |
-| `rviz` | `true` | RViz2 |
+| `rviz` | `true` | RViz2（官方彩色点云 + OccViz；`rviz:=false` 省 CPU） |
 | `source` | `stereonet` | 深度源 |
 | `arm` | `false` | 解锁 |
 | `max_vel` | `0.02` | 安全层速度上限 |

@@ -21,6 +21,17 @@ unset _ament_nounset
 export ROS_LOG_DIR="${ROS_LOG_DIR:-/tmp/zettatree_roslog}"
 mkdir -p "$ROS_LOG_DIR" 2>/dev/null || true
 
+# RDK X5 桌面常缺 vs-drm；与例程 8 RViz 相同走软件渲染
+if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+  if [ ! -e /usr/lib/aarch64-linux-gnu/dri/vs-drm_dri.so ] \
+    && [ ! -e /usr/lib/dri/vs-drm_dri.so ]; then
+    export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
+    export GALLIUM_DRIVER="${GALLIUM_DRIVER:-llvmpipe}"
+    export MESA_GL_VERSION_OVERRIDE="${MESA_GL_VERSION_OVERRIDE:-3.3}"
+    export MESA_GLSL_VERSION_OVERRIDE="${MESA_GLSL_VERSION_OVERRIDE:-330}"
+  fi
+fi
+
 # 动态选择实际存在且可加载的 RMW，绝不硬编码 CycloneDDS。
 if [ -z "${RMW_IMPLEMENTATION:-}" ]; then
   if ldconfig -p 2>/dev/null | grep -q 'librmw_cyclonedds_cpp.so'; then

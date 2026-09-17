@@ -49,7 +49,7 @@ def generate_launch_description():
 
     tip = LogInfo(msg=[
         '例程10：目标跟随（YOLO 行人 + 深度 3D + EGO/直接）。',
-        ' 参考 Fast-Planner / EGO-Planner。OpenCV 检测框；需拆桨。',
+        ' RViz=官方彩色点云+目标/路径。OpenCV 检测框；需拆桨。',
     ])
 
     use_ego = PythonExpression(["'", planner, "'.lower() == 'ego'"])
@@ -299,10 +299,8 @@ def generate_launch_description():
 
     rviz_node = ExecuteProcess(
         cmd=[
-            'bash', '-lc',
-            'if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then '
-            'echo "[rviz] 无 DISPLAY，跳过"; exit 0; fi; '
-            f'exec rviz2 -d {SCRIPT_DIR}/target_follow.rviz',
+            'bash', os.path.join(COMMON, 'rviz_run.sh'),
+            os.path.join(SCRIPT_DIR, 'target_follow.rviz'),
         ],
         output='screen',
         name='rviz_target_follow',
@@ -324,8 +322,8 @@ def generate_launch_description():
             'planner', default_value='ego',
             description='ego=完整EGO(/move_base_simple/goal)；direct=位置直跟'),
         DeclareLaunchArgument(
-            'rviz', default_value='false',
-            description='默认 false；RViz 不含 stereonet 稠密点云，仅目标/路径'),
+            'rviz', default_value='true',
+            description='默认 true：RViz 订官方 stereonet_pointcloud2 + 目标/路径；省 CPU 时 rviz:=false'),
         DeclareLaunchArgument('standoff', default_value='0.8'),
         DeclareLaunchArgument('follow_z', default_value=INDOOR_ALT),
         DeclareLaunchArgument('max_vel', default_value=INDOOR_MAX_VEL),

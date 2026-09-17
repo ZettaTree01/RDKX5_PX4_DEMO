@@ -204,14 +204,8 @@ def generate_launch_description():
     # 可选 RViz：直接订官方 XYZRGB，无需 map→camera_link TF
     rviz_node = ExecuteProcess(
         cmd=[
-            'bash', '-lc',
-            'if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then '
-            'echo "[rviz] 无 DISPLAY，跳过"; exit 0; fi; '
-            'if [ ! -e /usr/lib/aarch64-linux-gnu/dri/vs-drm_dri.so ] '
-            '&& [ ! -e /usr/lib/dri/vs-drm_dri.so ]; then '
-            'export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe '
-            'MESA_GL_VERSION_OVERRIDE=3.3 MESA_GLSL_VERSION_OVERRIDE=330; fi; '
-            f'exec rviz2 -d {SCRIPT_DIR}/depth_cloud.rviz',
+            'bash', os.path.join(DEMO_ROOT, '_common', 'rviz_run.sh'),
+            os.path.join(SCRIPT_DIR, 'depth_cloud.rviz'),
         ],
         output='screen',
         name='rviz_depth_cloud',
