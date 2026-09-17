@@ -179,7 +179,7 @@ def generate_launch_description():
             ('grid_map/occupancy', '/grid_map/occupancy'),
             ('grid_map/occupancy_inflate', '/grid_map/occupancy_inflate'),
         ],
-        # 建图参数与例程 9 实测一致；fsm=MANUAL_TARGET 动态目标（跟行人）
+        # 建图参数与例程 9 一致；fsm=MANUAL_TARGET 动态目标（跟行人）
         parameters=[{
             'fsm/flight_type': 1,
             'fsm/thresh_replan_time': 0.8,
@@ -334,7 +334,7 @@ def generate_launch_description():
         DeclareLaunchArgument('min_score', default_value='0.25'),
         DeclareLaunchArgument(
             'snapshot', default_value='',
-            description='headless 快照 JPEG 路径（show:=false 时取证用）'),
+            description='无显示器时的 JPEG 快照路径'),
         tip,
         mavros,
         manager,

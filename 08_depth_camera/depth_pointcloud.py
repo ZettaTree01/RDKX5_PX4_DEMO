@@ -21,7 +21,6 @@ from rclpy.qos import (
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2, PointField
 from cv_bridge import CvBridge
 
-# Stereonet 发布端为 RELIABLE；对齐后更稳，避免 BEST_EFFORT 丢帧一直 waiting
 _QOS_STEREO_DEPTH = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     history=HistoryPolicy.KEEP_LAST,
@@ -386,9 +385,8 @@ class DepthPointCloudNode(Node):
         if not self._stereo_points_ok:
             miss.append('pointcloud2')
         self._waiting(
-            'waiting BPU Stereonet\n'
-            'need: /StereoNetNode/stereonet_' + '+'.join(miss) + '\n'
-            'OpenCV: DEPTH | MAP3D')
+            '等待 Stereonet 深度数据\n'
+            + ' / '.join(miss))
 
     def _on_info(self, msg: CameraInfo):
         if msg.k[0] > 1.0:
@@ -396,8 +394,7 @@ class DepthPointCloudNode(Node):
             self.fy = float(msg.k[4])
             self.cx = float(msg.k[2])
             self.cy = float(msg.k[5])
-        # CPU 立体匹配用 |P[0,3]|/fx 推基线。注意：hobot_stereonet 要求右目
-        # P[0,3]=+fx*B（正号）；OpenCV 常见 -fx*B 会让 Stereonet 深度全 0。
+        # 右目 P[0,3] 为 +fx*B，基线取绝对值。
         try:
             p3 = float(msg.p[3])
             if abs(p3) > 1.0 and self.fx > 1.0:
@@ -474,10 +471,7 @@ class DepthPointCloudNode(Node):
             return
         if self.depth_m is None:
             if self.source == 'stereonet':
-                self._waiting(
-                    'waiting BPU /StereoNetNode/stereonet_depth\n'
-                    'need mipi 640x352 + start_stereonet.sh\n'
-                    'run: bash .../08_depth_camera/run.sh')
+                self._waiting('等待 Stereonet 深度图')
             return
         self._maybe_publish()
 
@@ -595,12 +589,10 @@ class DepthPointCloudNode(Node):
         if self._busy:
             return
         if self._combine_bgr is None:
-            self._waiting(
-                'waiting MIPI stereo /image_combine_raw\n'
-                'run: bash .../08_depth_camera/ensure_mipi_bpu.sh')
+            self._waiting('等待 MIPI 拼接图 /image_combine_raw')
             return
         if time.monotonic() - self._combine_stamp > 2.0:
-            self._waiting('MIPI stereo topic stalled (>2s)')
+            self._waiting('MIPI 画面中断')
             return
         self._busy = True
         try:
@@ -669,7 +661,7 @@ def main(args=None):
                         choices=[0, 90, 180, 270],
                         help='深度/彩色顺时针旋转；stereonet 官方链路请用 0')
     parser.add_argument('--opencv-fallback', action='store_true',
-                        help='Stereonet 超时后回退 CPU OpenCV（会卡）')
+                        help='Stereonet 超时后回退 CPU 立体匹配')
     parser.add_argument('--map-enable', dest='map_enable', action='store_true',
                         help='启用点云累积地图；默认关闭，避免无位姿时错误累积')
     parser.add_argument('--no-map-enable', dest='map_enable', action='store_false')

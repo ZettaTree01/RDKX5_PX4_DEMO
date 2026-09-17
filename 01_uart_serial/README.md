@@ -110,7 +110,7 @@ Ctrl+C 立即发停止指令。有 DShot 遥测时若实际转速超过 300 r/mi
 bash /app/zettatree_demo/06_autonomous_cruise/run.sh arm:=true
 ```
 
-换串口（例如调试用飞控 USB 口）：
+换串口（例如飞控 USB 口）：
 
 ```bash
 bash /app/zettatree_demo/06_autonomous_cruise/run.sh fcu_url:=/dev/ttyACM0:115200 arm:=true

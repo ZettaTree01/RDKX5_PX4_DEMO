@@ -17,7 +17,7 @@ cd /app/zettatree_demo/00_env_check
 bash run.sh --yes
 ```
 
-开发机改完代码后，用 `rsync` 或 `scp` 同步到机载 `/app/zettatree_demo`（不要同步 `.git`、`__pycache__`、`ego_ws`）。例程 10 可用 `10_target_follow/deploy_and_debug.py`，通过环境变量 `ONBOARD_HOST` / `ONBOARD_USER` / `ONBOARD_PASS` 登录板卡。
+开发机改完代码后，用 `rsync` 或 `scp` 同步到机载 `/app/zettatree_demo`（不要同步 `.git`、`__pycache__`、`ego_ws`）。
 
 ## 目录
 
@@ -116,7 +116,7 @@ TELEM1，需要先在 QGC 里把 `MAV_0_CONFIG` 改为对应 TELEM 端口。
 - 不要把插件清单 `sudo cp` 到 `/opt/ros/humble/share/mavros/launch/`：
   那里是所有例程共用的安装目录。
 
-调试后备：飞控的 USB 口也可用（`/dev/ttyACM0`，PX4 默认输出 MAVLink），
+- **飞控 USB 口备选**：`/dev/ttyACM0`（PX4 默认输出 MAVLink），
 给例程传 `fcu_url:=/dev/ttyACM0:115200` 即可，例如：
 
 ```bash

@@ -1,19 +1,7 @@
 #!/usr/bin/env bash
 # GS130W + hobot_stereonet（BPU DStereo V2.4 int16）
-# 深彩：/StereoNetNode/stereonet_visual
-# 点云：/StereoNetNode/stereonet_pointcloud2
-#
-# 注意：
-# 1) 部分 TROS 包 render_type 为 int，部分为 string；经 LaunchConfiguration
-#    一律变字符串易崩溃 → 用 params YAML + ros2 run。
-# 2) 本包参数名是 base_line（不是 baseline）；need_rectify 默认 true 会读
-#    ./config/stereo.yaml，找不到则深度全坏 → 必须显式 need_rectify:=false，
-#    并用 camera_fx/fy/cx/cy + base_line。
-# 3) DStereoV2.4_int16 官方 launch 强制 postprocess:=v2.3；默认 v1/v2
-#    会把视差解错 → 深度全 0。
-# 4) uncertainty_th 官方默认 -0.09（负数）；误写成正数会滤掉几乎全部点。
-# 5) mipi 会挂空的 /image_*_raw/camera_info；不要误用。统一订我们发布的
-#    /drone/stereo/*/camera_info。
+# DStereoV2.4：need_rectify=false，postprocess=v2.3，uncertainty_th=-0.09
+# 参数名 base_line；CameraInfo 由 pub_stereo_caminfo.py 发布。
 set -e
 # shellcheck disable=SC1091
 source /opt/tros/humble/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash
@@ -62,7 +50,7 @@ if [ -n "${LEFT_CAMERA_INFO_TOPIC:-}" ]; then
   LEFT_INFO="$LEFT_CAMERA_INFO_TOPIC"
 fi
 
-# 节点会读相对路径 ./config/stereo.yaml；固定 cwd 避免启动目录干扰
+# 节点会读相对路径 ./config/stereo.yaml
 RUN_DIR="${STEREO_RUN_DIR:-/userdata/stereonet_run}"
 mkdir -p "$RUN_DIR/config"
 CALIB_ABS="/opt/tros/humble/share/hobot_stereonet/config/stereo.yaml"
@@ -82,7 +70,6 @@ for _ in 1 2 3 4 5 6 7 8; do
       echo "[GS130W stereonet] combine live: $(echo "$hz" | grep -E 'average rate:' | head -1)"
       break
     fi
-    # 有话题但 hz 慢：仍允许启动（DDS 偶发）
     ok_img=1
     break
   fi
@@ -109,12 +96,6 @@ RENDER_TYPE="${RENDER_TYPE:-0}"
 PC_STEP="${POINTCLOUD_DOWNSAMPLE_STEP:-2}"
 RENDER_PERF="${RENDER_PERF:-true}"
 
-# 参数文件必须写到“当前用户一定可写”的目录。
-# 旧版先尝试 /userdata/.roslog，再回退到 /userdata 和 /app 项目目录；
-# 在常见 root-owned /app 部署下最终会在 line 129 的 cat 处 Permission denied。
-# 优先 /tmp，避免因日志目录/项目目录权限导致 Stereonet 根本无法启动。
-# 参数文件必须对当前用户可写。别人（如 root 调试）留下的同名文件
-# 在 sticky /tmp 下会 Permission denied，因此默认带 UID。
 PARAMS="${STEREO_PARAMS_FILE:-/tmp/zettatree_stereonet_params_${UID}.yaml}"
 PARAMS_DIR="$(dirname "$PARAMS")"
 if ! mkdir -p "$PARAMS_DIR" 2>/dev/null || ! (touch "$PARAMS" 2>/dev/null); then
@@ -133,8 +114,7 @@ else
   esac
 fi
 
-# 只写本包真实存在的参数名（ros2 param list /StereoNetNode）
-# DStereoV2.4：postprocess=v2.3 + uncertainty_th=-0.09；右目 CameraInfo 须 P[0,3]=+fx*B
+# DStereoV2.4 参数
 cat > "$PARAMS" <<EOF
 /**:
   ros__parameters:

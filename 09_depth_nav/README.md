@@ -22,7 +22,7 @@ RViz2：OccViz / grid_map / EGO Marker（**不订** stereonet 稠密彩色点云
 
 可选：`backend:=python` 退回板端 Python A* 同构实现（教学对照）。
 
-深度相机侧复用例程 8 的 `ensure_mipi_bpu.sh` / `pub_stereo_caminfo.py` / `start_stereonet.sh`（参数已按 DStereoV2.4 固化）。排障与「深度全 0」见 [`08_depth_camera/README.md`](../08_depth_camera/README.md)。单独验证双目可先：
+深度相机侧复用例程 8 的 `ensure_mipi_bpu.sh` / `pub_stereo_caminfo.py` / `start_stereonet.sh`。单独验证双目可先：
 
 ```bash
 bash /app/zettatree_demo/08_depth_camera/run.sh          # 或 views / rviz:=false

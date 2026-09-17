@@ -46,7 +46,7 @@ bash /app/zettatree_demo/11_formation_flight/run.sh \
 | `drone_id` | `0` | 本机编号，0 为领队（每机不同） |
 | `num_drones` | `3` | 编队飞机数 |
 
-## 只调试本节点
+## 仅运行本节点
 
 ```bash
 source /app/zettatree_demo/_common/env.sh

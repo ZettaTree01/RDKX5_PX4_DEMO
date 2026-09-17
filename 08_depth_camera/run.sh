@@ -33,7 +33,6 @@ for a in "$@"; do
       fi
       ;;
     start_stereo:=0|start_stereo:=false|start_stereo:=False|START_STEREO=0)
-      # 兼容历史参数名：launch 的正式参数是 start_stereonet。
       START_STEREO=0
       STEREO_OVERRIDE="start_stereonet:=false"
       ;;
@@ -60,9 +59,7 @@ _prepare_log() {
     mkdir -p "$d" 2>/dev/null || true
   fi
   export ROS_LOG_DIR="$d"
-  # 跨用户 SHM 常导致“有话题无数据”；例程 08 强制 UDPv4 更稳
   export FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
-  # 清掉 /tmp sticky 下别人留下的同名日志/参数，避免后续 : > 被拒
   rm -f /tmp/mipi_cam_gs130w.log 2>/dev/null || true
   if [ -f /tmp/zettatree_stereonet_params.yaml ] && [ ! -w /tmp/zettatree_stereonet_params.yaml ]; then
     rm -f /tmp/zettatree_stereonet_params.yaml 2>/dev/null || true
@@ -70,8 +67,7 @@ _prepare_log() {
 }
 
 _stop_stale_08() {
-  # 清掉其他用户/旧会话残留，避免 FastDDS SHM 跨 UID 收不到图。
-  echo "[08] 清理旧 MIPI / Stereonet / OpenCV / RViz ..."
+  echo "[08] 停止已有 MIPI / Stereonet / OpenCV / RViz ..."
   pkill -TERM -f '/app/zettatree_demo/08_depth_camera/depth_camera.launch.py' 2>/dev/null || true
   pkill -TERM -f '/app/zettatree_demo/08_depth_camera/depth_pointcloud.py' 2>/dev/null || true
   pkill -TERM -f '/app/zettatree_demo/08_depth_camera/pub_stereo_caminfo.py' 2>/dev/null || true
@@ -91,7 +87,6 @@ _stop_stale_08() {
 }
 
 _setup_gl() {
-  # X5 galcore 没有 vs-drm_dri.so，RViz 硬 GL 会空网格。无该 .so 时走 llvmpipe。
   if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
     if [ ! -e /usr/lib/aarch64-linux-gnu/dri/vs-drm_dri.so ] \
       && [ ! -e /usr/lib/dri/vs-drm_dri.so ]; then
@@ -99,7 +94,6 @@ _setup_gl() {
       export GALLIUM_DRIVER="${GALLIUM_DRIVER:-llvmpipe}"
       export MESA_GL_VERSION_OVERRIDE="${MESA_GL_VERSION_OVERRIDE:-3.3}"
       export MESA_GLSL_VERSION_OVERRIDE="${MESA_GLSL_VERSION_OVERRIDE:-330}"
-      echo "[08] 无 vs-drm，RViz 使用软件 OpenGL (llvmpipe)"
     fi
   fi
 }

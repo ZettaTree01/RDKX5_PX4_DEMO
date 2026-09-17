@@ -21,7 +21,6 @@ ROT="${MIPI_ROTATION:-90.0}"
 CALIB="${MIPI_CALIB_FILE:-/opt/tros/humble/lib/mipi_cam/config/SC132gs_dual_calibration.yaml}"
 NEED_RESTART=0
 
-# /tmp 有 sticky bit：别人留下的同名日志即使用户是 root，O_CREAT 也可能 Permission denied。
 _mipi_log_init() {
   local d="${ROS_LOG_DIR:-/tmp/zettatree_roslog}"
   mkdir -p "$d" 2>/dev/null || d="/tmp"
@@ -43,7 +42,6 @@ _mipi_pids() {
   pgrep -f '/opt/tros/humble/lib/mipi_cam/mipi_cam' || true
 }
 
-# 跨 UID 的 FastDDS SHM 经常“有 Publisher、无数据”。MIPI 必须是当前用户的。
 _mipi_owner_ok() {
   local pid ou
   pid=$(_mipi_pids | head -1)
@@ -64,7 +62,6 @@ _mipi_has_frames() {
 }
 
 _mipi_stop() {
-  # 只杀 mipi 二进制；跨用户残留用 sudo -n（无密码 sudo 时才能清掉 root 调试进程）
   for p in $(_mipi_pids); do
     kill -TERM "$p" 2>/dev/null || sudo -n kill -TERM "$p" 2>/dev/null || true
   done
@@ -131,21 +128,17 @@ if [ "$NEED_RESTART" = "1" ]; then
     fi
     # 前几秒只等 init
     if [ "$i" -lt 5 ]; then
-      echo "[GS130W mipi] waiting init... ${i}/30"
+        echo "[GS130W mipi] 初始化 ${i}/30"
       continue
     fi
     if RATE=$(_mipi_has_frames); then
       echo "[GS130W mipi] ok ${RATE} (${i}s)"
       exit 0
     fi
-    echo "[GS130W mipi] waiting frames... ${i}/30"
+    echo "[GS130W mipi] 等待画面 ${i}/30"
   done
   echo "[GS130W mipi] 警告: 未见帧，见 $MIPI_LOG" >&2
   tail -n 50 "$MIPI_LOG" >&2 || true
-  # 传感器仍在线时给出提示；Aborted 多为杀进程时的已知析构问题
-  if grep -q 'terminate called without an active exception' "$MIPI_LOG" 2>/dev/null; then
-    echo "[GS130W mipi] 提示: Aborted 多为 mipi_cam 退出析构问题；可再跑一次本脚本" >&2
-  fi
   exit 1
 fi
 

@@ -210,8 +210,7 @@ def generate_launch_description():
             'if [ ! -e /usr/lib/aarch64-linux-gnu/dri/vs-drm_dri.so ] '
             '&& [ ! -e /usr/lib/dri/vs-drm_dri.so ]; then '
             'export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe '
-            'MESA_GL_VERSION_OVERRIDE=3.3 MESA_GLSL_VERSION_OVERRIDE=330; '
-            'echo "[rviz] 无 vs-drm，使用软件 OpenGL (llvmpipe)"; fi; '
+            'MESA_GL_VERSION_OVERRIDE=3.3 MESA_GLSL_VERSION_OVERRIDE=330; fi; '
             f'exec rviz2 -d {SCRIPT_DIR}/depth_cloud.rviz',
         ],
         output='screen',

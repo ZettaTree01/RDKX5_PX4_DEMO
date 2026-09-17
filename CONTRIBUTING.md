@@ -8,7 +8,7 @@
 
 ## 请勿提交
 
-- `_tmp_*` 以及任何含板卡 IP / 密码的调试脚本
+- `_tmp_*`、含板卡账号的临时脚本
 - `__pycache__`、`*.pyc`、`*.log`、快照 `*_snapshot.jpg`
 - `mavros/`、`09_depth_nav/ego_ws/`（板端构建产物）
 - BPU `.bin` 模型文件

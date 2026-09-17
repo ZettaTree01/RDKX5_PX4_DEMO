@@ -75,7 +75,7 @@ scp sunrise@<X5_IP>:/tmp/cruise_snapshot.jpg .
 | `device` | `auto` | 抓拍摄像头；`auto` 表示自动探测 |
 | `show` | `true` | 巡航画面输出（弹窗/快照，无显示环境自动回退） |
 
-## 只调试本节点
+## 仅运行本节点
 
 MAVROS 与管理器已经由别的终端提供时，可以只跑巡航节点：
 

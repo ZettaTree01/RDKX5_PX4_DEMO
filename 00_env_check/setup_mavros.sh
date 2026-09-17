@@ -155,13 +155,13 @@ rm -rf build log 2>/dev/null || true
 rosdep install --from-paths src --ignore-src -r -y || true
 
 NPROC="$(nproc 2>/dev/null || echo 2)"
-# 默认按内存自适应：空闲充足用 -j4，紧张则降到 2/1（同机跑 Stereonet 时易 OOM）
+# 自适应并行：有 swap/内存时 -j3，紧张则降级。模板翻译单元大，-j4 易 OOM。
 MEM_AVAIL_KB="$(awk '/MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
 if [ -n "${MAVROS_JOBS:-}" ]; then
   JOBS="$MAVROS_JOBS"
-elif [ "${MEM_AVAIL_KB:-0}" -ge 3500000 ]; then
-  JOBS=4
-elif [ "${MEM_AVAIL_KB:-0}" -ge 1800000 ]; then
+elif [ "${MEM_AVAIL_KB:-0}" -ge 4000000 ]; then
+  JOBS=3
+elif [ "${MEM_AVAIL_KB:-0}" -ge 2000000 ]; then
   JOBS=2
 else
   JOBS=1
@@ -172,11 +172,14 @@ if [ "${MEM_AVAIL_KB:-0}" -gt 0 ] && [ "$MEM_AVAIL_KB" -lt 900000 ] && [ "$JOBS"
   JOBS=1
 fi
 export MAKEFLAGS="-j${JOBS}"
-echo "[mavros] colcon build -j${JOBS} （仅 src/，跳过测试）… MemAvailable=${MEM_AVAIL_KB:-?}kB"
+echo "[mavros] colcon build -j${JOBS} （跳过测试，-O2）… MemAvailable=${MEM_AVAIL_KB:-?}kB"
 colcon build --symlink-install \
   --base-paths src \
   --packages-up-to mavros mavros_extras \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+  --cmake-args \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF \
+    -DCMAKE_CXX_FLAGS_RELEASE="-O2 -DNDEBUG"
 
 _source_setup "$WS/install/setup.bash"
 if ! _have_mavros; then

@@ -64,7 +64,7 @@ scp sunrise@<X5_IP>:/tmp/tracking_snapshot.jpg .
 | `show` | `true` | 对准画面输出（弹窗/快照） |
 | `max_vel` | `0.05` | 对准平移速度上限（m/s） |
 
-## 只调试本节点
+## 仅运行本节点
 
 ```bash
 source /app/zettatree_demo/_common/env.sh
