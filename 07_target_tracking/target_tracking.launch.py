@@ -18,6 +18,7 @@ INDOOR_ALT = '0.1'
 
 
 def generate_launch_description():
+    """组装 MAVROS、OFFBOARD 管理器、台架模拟、相机与 H 标降落节点。"""
     fcu_url = LaunchConfiguration('fcu_url')
     arm = LaunchConfiguration('arm')
     altitude = LaunchConfiguration('altitude')
@@ -27,6 +28,8 @@ def generate_launch_description():
     show = LaunchConfiguration('show')
     max_vel = LaunchConfiguration('max_vel')
 
+    # 飞控链路：UART 接 PX4
+    # 飞控链路：UART 接 PX4
     mavros = IncludeLaunchDescription(
         AnyLaunchDescriptionSource(
             os.path.join(get_package_share_directory('mavros'),
@@ -43,6 +46,8 @@ def generate_launch_description():
         }.items(),
     )
 
+    # OFFBOARD 管理器：设定点、解锁与降落
+    # OFFBOARD 管理器：设定点、解锁与降落
     manager = ExecuteProcess(
         cmd=[
             'python3', os.path.join(COMMON, 'offboard_manager.py'),
@@ -56,6 +61,8 @@ def generate_launch_description():
         name='offboard_manager',
     )
 
+    # 室内无 GPS：台架位姿模拟
+    # 室内无 GPS：台架位姿模拟
     simulator = ExecuteProcess(
         cmd=[
             'python3', os.path.join(BENCH_DIR, 'bench_pose_sim.py'),
@@ -66,6 +73,8 @@ def generate_launch_description():
         condition=IfCondition(bench),
     )
 
+    # 视觉相机：供 H 标检测
+    # 视觉相机：供 H 标检测
     camera_node = ExecuteProcess(
         cmd=[
             'bash', os.path.join(COMMON, 'start_vision_cam.sh'),
@@ -77,6 +86,8 @@ def generate_launch_description():
         name='vision_cam',
     )
 
+    # H 标对准降落任务节点
+    # H 标对准降落任务节点
     task = ExecuteProcess(
         cmd=[
             'python3', os.path.join(SCRIPT_DIR, 'target_tracking.py'),

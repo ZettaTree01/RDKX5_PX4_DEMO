@@ -35,12 +35,14 @@ _LATCHED = QoSProfile(
 
 
 def _yaw(q) -> float:
+    """四元数 → 偏航角（ENU）。"""
     return math.atan2(
         2.0 * (q.w * q.z + q.x * q.y),
         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
 def _read_xyz(msg: PointCloud2, max_n: int = 20000) -> np.ndarray:
+    """抽稀读取点云 xyz。"""
     names = {f.name: f for f in msg.fields}
     if not all(k in names for k in ('x', 'y', 'z')):
         return np.zeros((0, 3), np.float32)
@@ -90,7 +92,10 @@ def _to_cloud(header, pts: np.ndarray) -> PointCloud2:
 
 
 class CloudCamToWorld(Node):
+    """相机系点云 × 机体位姿 → world，供 EGO grid_map。"""
+
     def __init__(self):
+        """无 MAVROS 时用原点姿态，便于台架监视建图。"""
         super().__init__('cloud_cam_to_world')
         self.declare_parameter('in_topic', '/StereoNetNode/stereonet_pointcloud2')
         self.declare_parameter('out_topic', '/drone/ego/cloud_world')
@@ -128,17 +133,20 @@ class CloudCamToWorld(Node):
             + (f' z_align=True' if self.z_align else ''))
 
     def _on_zref(self, msg: Float64):
+        """接收 z 对齐基准。"""
         if self._z0 is None:
             self._z0 = float(msg.data)
             self.get_logger().info(f'z 对齐基准 z0={self._z0:.3f}')
 
     def _on_pose(self, msg: PoseStamped):
+        """缓存最新局部位姿与偏航。"""
         p = msg.pose.position
         self.pose = (float(p.x), float(p.y), float(p.z))
         self.yaw = _yaw(msg.pose.orientation)
         self._have_mavros_pose = True
 
     def _on_cloud(self, msg: PointCloud2):
+        """点云回调：限频、可选等 z0，再变换到 world 发布。"""
         now = time.monotonic()
         if now - self._last_t < self.min_period:
             return
@@ -164,6 +172,7 @@ class CloudCamToWorld(Node):
 
 
 def main():
+    """启动 cloud_cam_to_world 桥接节点。"""
     rclpy.init()
     node = CloudCamToWorld()
     try:

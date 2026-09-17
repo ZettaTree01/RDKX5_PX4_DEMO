@@ -72,6 +72,7 @@ PERSON_CLS = 0  # COCO person
 
 
 def _yaw_from_quat(q) -> float:
+    """四元数 → 偏航角。"""
     return math.atan2(
         2.0 * (q.w * q.z + q.x * q.y),
         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
@@ -107,6 +108,7 @@ def _draw_move_arrows(img, vx, vy, vz, max_vel):
     color_act = (0, 220, 255)
 
     def arm(dx, dy, active):
+        """画单条十字臂箭头（升/降/左/右）。"""
         color = color_act if active else color_idle
         thick = 3 if active else 1
         cv2.arrowedLine(
@@ -133,6 +135,7 @@ def _draw_move_arrows(img, vx, vy, vz, max_vel):
 
 
 def _median_depth(depth_m: np.ndarray, x1, y1, x2, y2):
+    """检测框内深度中位数（取下半躯干区域，过滤天空空洞）。"""
     h, w = depth_m.shape[:2]
     x1 = max(0, min(w - 1, int(x1)))
     x2 = max(0, min(w - 1, int(x2)))
@@ -158,6 +161,7 @@ def _pixel_to_cam_ros(u, v, z, fx, fy, cx, cy):
 
 
 def _cam_to_world(xb, yb, zb, pose_xyz, yaw):
+    """ROS 相机/机体 FLU 点 → ENU world（绕 yaw 旋转后加平移）。"""
     c, s = math.cos(yaw), math.sin(yaw)
     ox, oy, oz = pose_xyz
     return (
@@ -168,12 +172,15 @@ def _cam_to_world(xb, yb, zb, pose_xyz, yaw):
 
 
 class TargetFollowNode(Node):
+    """YOLO 行人 + 深度取 3D，按 standoff 发布 EGO 目标或直接位姿。"""
+
     def __init__(
             self, source='stereonet', planner='ego', show=True,
             snapshot=None, snapshot_period=5.0, max_vel=None,
             standoff=0.8, follow_z=0.1, goal_period=0.5,
             safe_distance=1.2, stop_distance=0.45,
             min_score=0.25, detect_period=0.2, target_timeout=1.0):
+        """planner=ego|direct；standoff 为与行人保持的水平距离(m)。"""
         super().__init__('target_follow')
         self.bridge = CvBridge()
         self.source = source
@@ -288,6 +295,7 @@ class TargetFollowNode(Node):
             f'max_vel={self.max_vel:.3f} yolo={self.detector.loaded}')
 
     def _on_pose(self, msg: PoseStamped):
+        """缓存位姿；可选按 z_ref 对齐到 EGO 世界系。"""
         p = msg.pose.position
         self.pose = (float(p.x), float(p.y), float(p.z))
         self.yaw = _yaw_from_quat(msg.pose.orientation)
@@ -309,9 +317,11 @@ class TargetFollowNode(Node):
         return float(z_mavros) - self._z0
 
     def _ego_xyz(self, xyz) -> tuple:
+        """三元组高度分量做 z 对齐。"""
         return (float(xyz[0]), float(xyz[1]), self._ego_z(xyz[2]))
 
     def _on_depth(self, msg: Image):
+        """深度图回调。"""
         try:
             arr = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
             self.depth_m = depth_msg_to_meters(np.asarray(arr), msg.encoding)
@@ -319,6 +329,7 @@ class TargetFollowNode(Node):
             self.get_logger().warn('深度解码失败', throttle_duration_sec=3.0)
 
     def _on_color(self, msg: Image):
+        """彩色/左目回调，供 YOLO。"""
         # 检测画面解码限频：YOLO 只按 detect_period 消费，无需全帧解码
         now = time.monotonic()
         if now - self._last_color_t < self.detect_period * 0.75:
@@ -332,6 +343,7 @@ class TargetFollowNode(Node):
                 f'检测画面解码失败: {exc}', throttle_duration_sec=5.0)
 
     def _on_visual(self, msg: Image):
+        """Stereonet 深彩回调。"""
         # 官方深彩仅作显示底图兜底（检测画面优先 origin_left）
         now = time.monotonic()
         if now - self._last_visual_t < 0.2:
@@ -390,6 +402,7 @@ class TargetFollowNode(Node):
     # ---- 检测与目标 ----
 
     def _detect_person(self, frame):
+        """YOLO 检人，返回最优行人框。"""
         if not self.detector.loaded:
             return None
         try:
@@ -438,6 +451,7 @@ class TargetFollowNode(Node):
         return fresh
 
     def _compute_follow_goal(self):
+        """按 standoff 距离计算跟随点（机→人方向回退）。"""
         if self.target_w is None or self.pose is None:
             return None
         tx, ty, tz = self.target_w
@@ -492,6 +506,7 @@ class TargetFollowNode(Node):
     # ---- 控制 ----
 
     def _publish_vel(self, vx, vy, vz=0.0):
+        """发布机体速度给 OFFBOARD 管理器。"""
         self.cmd = (float(vx), float(vy), float(vz))
         dirs = _move_dirs(vx, vy, vz, self.max_vel)
         self.move_label = '、'.join(dirs) if dirs else '悬停'
@@ -504,6 +519,7 @@ class TargetFollowNode(Node):
         self.vel_pub.publish(msg)
 
     def _pose_msg(self, xyz, frame='world') -> PoseStamped:
+        """构造 PoseStamped。"""
         ps = PoseStamped()
         ps.header.stamp = self.get_clock().now().to_msg()
         ps.header.frame_id = frame
@@ -521,6 +537,7 @@ class TargetFollowNode(Node):
         return ps
 
     def _should_republish_goal(self, goal) -> bool:
+        """目标变化足够大或超时才重发，减轻 EGO 抖动。"""
         now = time.monotonic()
         if now - self._last_goal_t < self.goal_period:
             if self._last_goal_pub is None:
@@ -532,6 +549,7 @@ class TargetFollowNode(Node):
         return True
 
     def _publish_goal(self, goal):
+        """按 control_mode 发 EGO goal 或直接局部位姿。"""
         # EGO MANUAL_TARGET（z 已在 EGO 对齐系）
         ego = self._pose_msg(goal, 'world')
         self.goal_ego_pub.publish(ego)
@@ -578,6 +596,7 @@ class TargetFollowNode(Node):
         self.link_pub.publish(mk)
 
     def _publish_history_path(self):
+        """发布历史航迹 Path。"""
         path = Path()
         path.header = Header(
             stamp=self.get_clock().now().to_msg(), frame_id='world')
@@ -592,6 +611,7 @@ class TargetFollowNode(Node):
         self.path_pub.publish(path)
 
     def _tick_control(self):
+        """控制周期：更新目标、安全覆盖、发布跟随指令。"""
         # 航迹：起飞后、水平位移超阈值才记录
         if (self.airborne and self.pose is not None
                 and time.monotonic() - self._last_trail_t > 0.2):
@@ -670,6 +690,7 @@ class TargetFollowNode(Node):
     # ---- 可视化 ----
 
     def _waiting_panel(self) -> np.ndarray:
+        """等待视觉/深度时的提示面板。"""
         panel = np.zeros((472, 992, 3), np.uint8)
         panel[:] = (32, 34, 38)
         if self.source == 'simulate':
@@ -686,6 +707,7 @@ class TargetFollowNode(Node):
         return panel
 
     def _tick_viz(self):
+        """OpenCV 双栏：检测画面 | 俯视跟随几何 + 中文状态栏。"""
         if not self.out.enabled():
             return
         # 左：检测画面（origin_left 优先，退官方深彩/模拟画面）
@@ -837,6 +859,7 @@ class TargetFollowNode(Node):
 
 
 def main(args=None):
+    """解析参数并 spin 目标跟随节点。"""
     parser = argparse.ArgumentParser(description='目标跟随（行人）')
     parser.add_argument('--source', default='stereonet',
                         choices=['stereonet', 'simulate'])

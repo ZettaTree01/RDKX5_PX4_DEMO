@@ -18,6 +18,7 @@ TMP_LOG_DIR = '/tmp/zettatree_roslog'
 
 
 def generate_launch_description():
+    """拉起 MIPI/Stereonet/点云转发/可选 RViz 与地图节点。"""
     for d in (TMP_LOG_DIR,):
         try:
             os.makedirs(d, exist_ok=True)

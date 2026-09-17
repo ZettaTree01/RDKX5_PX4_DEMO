@@ -22,6 +22,8 @@ else
 fi
 
 
+# 编译 EGO 所需系统库与 ROS 包（缺省时 apt 失败不中断）
+# 编译 EGO 所需系统库与 ROS 包（缺省时 apt 失败不中断）
 echo "[ego] 安装依赖…"
 sudo apt-get update -qq || true
 sudo apt-get install -y \

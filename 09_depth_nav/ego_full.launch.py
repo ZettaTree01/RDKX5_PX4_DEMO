@@ -33,6 +33,7 @@ TMP_LOG_DIR = '/tmp/zettatree_roslog'
 
 
 def generate_launch_description():
+    """完整 C++ EGO-Planner + 桥接 + Stereonet + depth_nav 安全/可视化。"""
     fcu_url = LaunchConfiguration('fcu_url')
     arm = LaunchConfiguration('arm')
     altitude = LaunchConfiguration('altitude')
@@ -126,6 +127,7 @@ def generate_launch_description():
         ])),
     )
 
+    # 桥接：MAVROS 位姿 → /odom_world + TF
     pose_odom = ExecuteProcess(
         cmd=['python3', os.path.join(BRIDGES, 'pose_to_odom.py')],
         output='screen',

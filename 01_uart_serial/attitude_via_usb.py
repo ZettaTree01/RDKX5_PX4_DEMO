@@ -59,10 +59,12 @@ def request_attitude(ser, mav, sysid, compid, hz):
 
 
 def fmt_signed(value, width=7, prec=2):
+    """带正负号的定宽浮点格式化，便于姿态行对齐。"""
     return '%+*.*f' % (width, prec, value)
 
 
 def main():
+    """打开串口、等心跳、订阅 ATTITUDE 并打印；退出时恢复默认速率。"""
     ap = argparse.ArgumentParser(description='通过 40PIN 针脚串口(/dev/ttyS2)读取 PX4 飞控姿态')
     ap.add_argument('--port', default='/dev/ttyS2',
                     help='串口设备。本教程统一 40PIN UART2 /dev/ttyS2')

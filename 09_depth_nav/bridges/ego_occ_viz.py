@@ -21,6 +21,7 @@ _QOS = QoSProfile(
 
 
 def _read_xyz(msg: PointCloud2, max_n: int = 12000) -> np.ndarray:
+    """抽稀读取点云 xyz。"""
     names = {f.name: f for f in msg.fields}
     if not all(k in names for k in ('x', 'y', 'z')):
         return np.zeros((0, 3), np.float32)
@@ -41,6 +42,7 @@ def _read_xyz(msg: PointCloud2, max_n: int = 12000) -> np.ndarray:
 
 
 def _to_cloud(header, pts: np.ndarray) -> PointCloud2:
+    """xyz 数组 → PointCloud2。"""
     msg = PointCloud2()
     msg.header = header
     msg.height = 1
@@ -62,7 +64,10 @@ def _to_cloud(header, pts: np.ndarray) -> PointCloud2:
 
 
 class EgoOccViz(Node):
+    """world 点云体素化后发 /drone/ego/occ_viz，供 RViz 稳定显示。"""
+
     def __init__(self):
+        """按分辨率与高度带过滤后体素去重。"""
         super().__init__('ego_occ_viz')
         self.declare_parameter('in_topic', '/drone/ego/cloud_world')
         self.declare_parameter('out_topic', '/drone/ego/occ_viz')
@@ -84,6 +89,7 @@ class EgoOccViz(Node):
             f'{inn} → voxel {out} res={self.res:.2f}m')
 
     def _on_cloud(self, msg: PointCloud2):
+        """限频体素化：高度裁剪 → 哈希去重 → 发布体素中心。"""
         now = time.monotonic()
         if now - self._last_t < self.min_period:
             return
@@ -110,6 +116,7 @@ class EgoOccViz(Node):
 
 
 def main():
+    """启动占据可视化节点。"""
     rclpy.init()
     node = EgoOccViz()
     try:

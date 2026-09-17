@@ -6,6 +6,8 @@
 2. 查询使用 occupied set，A* 不再扫描全部体素；
 3. inflation 偏移预计算；
 4. 保留原有公开类/函数接口，便于例程直接替换。
+
+坐标系约定：输入点云与起终点均为地图系（通常为本地 ENU）米制坐标。
 """
 from __future__ import annotations
 
@@ -19,6 +21,17 @@ import numpy as np
 
 @dataclass
 class EgoMapConfig:
+    """局部占据地图与膨胀参数。
+
+    Attributes:
+        resolution: 体素边长（米）。
+        local_range_xy / local_range_z: 相对原点的积分窗口半宽。
+        inflation: 障碍膨胀半径（米）。
+        max_voxels: LRU 上限，超出则丢最旧命中。
+        hit_count: 升为占据所需的观测帧数。
+        ground_z_min / ground_z_max: 高度裁剪，抑制地面/天花板噪点。
+        robot_radius: 机身半径，并入 ``is_free_xy`` 膨胀。
+    """
     resolution: float = 0.15
     local_range_xy: float = 4.0
     local_range_z: float = 2.0
@@ -31,7 +44,10 @@ class EgoMapConfig:
 
 
 class LocalOccupancyMap:
+    """局部 3D 体素占据图（查询时按 2.5D 检查邻层）。"""
+
     def __init__(self, cfg: EgoMapConfig):
+        """用配置初始化命中表、占据集与膨胀缓存。"""
         self.cfg = cfg
         self._hits: OrderedDict[tuple[int, int, int], int] = OrderedDict()
         self._occupied: set[tuple[int, int, int]] = set()
@@ -39,18 +55,25 @@ class LocalOccupancyMap:
         self._offset_cache: dict[int, tuple[tuple[int, int], ...]] = {}
 
     def clear(self):
+        """清空命中、占据与膨胀缓存。"""
         self._hits.clear()
         self._occupied.clear()
         self._inflated_cache.clear()
 
     def _key(self, x, y, z):
+        """世界坐标 → 体素索引（floor）。"""
         r = self.cfg.resolution
         return (int(math.floor(x / r)),
                 int(math.floor(y / r)),
                 int(math.floor(z / r)))
 
     def integrate_points(self, pts_map: np.ndarray, origin_xyz):
-        """向量化体素化；仅在最终唯一体素上更新命中计数。"""
+        """向量化体素化；仅在最终唯一体素上更新命中计数。
+
+        Args:
+            pts_map: (N,3) 地图系点云。
+            origin_xyz: 积分窗口中心 (x,y,z)。
+        """
         if pts_map is None or len(pts_map) == 0:
             return
         pts_map = np.asarray(pts_map, dtype=np.float32)
@@ -94,6 +117,7 @@ class LocalOccupancyMap:
             self._inflated_cache.clear()
 
     def _inflation_offsets(self, inf_n: int):
+        """预计算半径 ``inf_n``（体素数）内的圆形 (dx,dy) 偏移并缓存。"""
         offsets = self._offset_cache.get(inf_n)
         if offsets is None:
             offsets = tuple(
@@ -106,6 +130,7 @@ class LocalOccupancyMap:
         return offsets
 
     def occupied_centers(self, inflated: bool = False) -> np.ndarray:
+        """返回占据体素中心坐标 (N,3)；``inflated=True`` 时含水平膨胀。"""
         r = self.cfg.resolution
         if not inflated:
             cells = self._occupied
@@ -128,6 +153,10 @@ class LocalOccupancyMap:
         return arr
 
     def is_free_xy(self, x, y, z_ref, inflated: bool = True) -> bool:
+        """判断 (x,y) 在参考高度附近是否可通行（含膨胀与机身半径）。
+
+        2.5D：检查当前 z 层及上下相邻两层。
+        """
         r = self.cfg.resolution
         inf_n = int(math.ceil(
             (self.cfg.inflation + self.cfg.robot_radius) / r)) if inflated else 0
@@ -143,6 +172,10 @@ class LocalOccupancyMap:
 
 def astar_plan_xy(occ: LocalOccupancyMap, start_xy, goal_xy,
                   z_ref: float, max_expand: int = 4000):
+    """在固定高度 ``z_ref`` 上做 8 邻域 A*，返回 [(x,y,z), ...]。
+
+    起点/终点不可通行或搜索失败时返回空列表。
+    """
     r = occ.cfg.resolution
     sx, sy = start_xy
     gx, gy = goal_xy
@@ -182,6 +215,7 @@ def astar_plan_xy(occ: LocalOccupancyMap, start_xy, goal_xy,
             y = (nxt[1] + 0.5) * r
             if not occ.is_free_xy(x, y, z_ref):
                 continue
+            # 对角步长 √2，正交步长 1（体素单位）
             step = 1.41421356237 if dx and dy else 1.0
             ng = gc + step
             if ng < gscore.get(nxt, float('inf')):
@@ -200,6 +234,7 @@ def astar_plan_xy(occ: LocalOccupancyMap, start_xy, goal_xy,
 
 
 def _line_fallback(sx, sy, gx, gy, z, occ):
+    """直线连通性检查：全程自由则返回两端点，否则空列表。"""
     n = max(2, int(math.hypot(gx - sx, gy - sy) / occ.cfg.resolution))
     for i in range(n + 1):
         t = i / n
@@ -210,6 +245,17 @@ def _line_fallback(sx, sy, gx, gy, z, occ):
 
 
 def path_follow_body_vel(path_xyz, pose_xyz, yaw, max_vel):
+    """沿路径取前瞻点，转机体 FLU 速度 (vx, vy, vz)，幅值不超过 ``max_vel``。
+
+    Args:
+        path_xyz: 路径点列表 [(x,y,z), ...]。
+        pose_xyz: 当前位姿 (x,y,z)。
+        yaw: 当前偏航（弧度，ENU）。
+        max_vel: 水平速度上限（米/秒）。
+
+    Returns:
+        (vx, vy, vz) 机体前/左/上。
+    """
     if not path_xyz:
         return 0.0, 0.0, 0.0
     px, py, pz = pose_xyz

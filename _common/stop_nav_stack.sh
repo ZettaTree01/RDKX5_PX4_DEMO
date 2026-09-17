@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # 停止例程 8/9/10 相关进程（MIPI / Stereonet / EGO / RViz / 桥接 / MAVROS）。
 # 供 Ctrl+C / EXIT 陷阱调用；勿匹配过宽以免误杀 SSH。
+# 流程：先 SIGTERM 宽匹配 → 短暂等待 → 对残留再 SIGKILL。
 set +e
 
 _term_then_kill() {
+  # 向命令行匹配 ``pat`` 的进程发 SIGTERM（找不到则忽略）
   local pat="$1"
   pkill -TERM -f "$pat" 2>/dev/null || true
 }

@@ -98,6 +98,7 @@ def _ros_cloud_to_cam_xyz(msg: PointCloud2, max_points: int = 8000) -> np.ndarra
 
 
 def yaw_from_quat(q) -> float:
+    """四元数 → 偏航角（ENU）。"""
     siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
     cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
     return math.atan2(siny_cosp, cosy_cosp)
@@ -133,6 +134,7 @@ def _draw_move_arrows(img, vx, vy, vz, max_vel):
     color_act = (0, 220, 255)
 
     def arm(dx, dy, active):
+        """画单条十字臂箭头（升/降/左/右）。"""
         color = color_act if active else color_idle
         thick = 3 if active else 1
         cv2.arrowedLine(
@@ -159,6 +161,7 @@ def _draw_move_arrows(img, vx, vy, vz, max_vel):
 
 
 def _topic_or_none(value):
+    """空串/占位符 → None。"""
     if value is None:
         return None
     s = str(value).strip()
@@ -168,11 +171,14 @@ def _topic_or_none(value):
 
 
 class DepthNavNode(Node):
+    """深度导航可视化与安全层：跟径/安全覆盖/纯可视化三模式。"""
+
     def __init__(self, source='stereonet', depth_topic=None, color_topic=None,
                  info_topic=None, show=True, snapshot=None, snapshot_period=5.0,
                  max_vel=None, safe_distance=1.2, side_m=None,
                  stop_distance=0.45, min_range=0.3, max_range=5.0,
                  control_mode='follow'):
+        """control_mode: follow|safety|viz；安全层始终可覆盖。"""
         super().__init__('depth_nav')
         self.bridge = CvBridge()
         self.source = source
@@ -310,6 +316,7 @@ class DepthNavNode(Node):
             f'side={self.side:.3f}')
 
     def _tick_wait_depth(self):
+        """深度尚未到达时刷新等待提示。"""
         if self._depth_ok:
             return
         if time.monotonic() - self._wait_t0 < 2.0:
@@ -330,6 +337,7 @@ class DepthNavNode(Node):
         self._ego_cmd_t = time.monotonic()
 
     def _publish_ego_goal(self, xyz):
+        """向规划器发布局部目标点。"""
         ps = PoseStamped()
         ps.header.stamp = self.get_clock().now().to_msg()
         ps.header.frame_id = 'map'
@@ -340,6 +348,7 @@ class DepthNavNode(Node):
         self.ego_goal_pub.publish(ps)
 
     def _on_info(self, msg: CameraInfo):
+        """更新相机内参。"""
         if msg.k[0] > 1.0:
             self.fx, self.fy = float(msg.k[0]), float(msg.k[4])
             self.cx, self.cy = float(msg.k[2]), float(msg.k[5])
@@ -376,6 +385,7 @@ class DepthNavNode(Node):
                 f'官方点云解析失败: {exc}', throttle_duration_sec=2.0)
 
     def _on_depth(self, msg: Image):
+        """深度图回调（非 stereonet 官方路径）。"""
         try:
             arr = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
             self.depth_m = depth_msg_to_meters(np.asarray(arr), msg.encoding)
@@ -385,6 +395,7 @@ class DepthNavNode(Node):
                 f'深度转换失败: {exc}', throttle_duration_sec=2.0)
 
     def _on_color(self, msg: Image):
+        """彩色图回调。"""
         try:
             enc = (msg.encoding or '').lower()
             if enc in ('nv12', 'yuv420', 'yuv420p'):
@@ -396,6 +407,7 @@ class DepthNavNode(Node):
             pass
 
     def _sim_depth(self):
+        """模拟深度源定时器。"""
         base = 2.4
         if self.pose and self.home and self.waypoints:
             base = 1.6 + 0.8 * abs(math.sin(self._sim.now() * 0.5))
@@ -417,6 +429,7 @@ class DepthNavNode(Node):
         self._depth_ok = True
 
     def _on_pose(self, msg: PoseStamped):
+        """位姿回调：缓存位置/偏航，锁定俯视北方。"""
         p = msg.pose.position
         self.pose = (float(p.x), float(p.y), float(p.z))
         self.yaw = yaw_from_quat(msg.pose.orientation)
@@ -435,6 +448,7 @@ class DepthNavNode(Node):
                 self._publish_history_path()
 
     def _publish_history_path(self):
+        """发布飞过轨迹 Path，供 RViz/OpenCV。"""
         path = Path()
         path.header = Header()
         path.header.stamp = self.get_clock().now().to_msg()
@@ -451,6 +465,7 @@ class DepthNavNode(Node):
         self.path_pub.publish(path)
 
     def _build_waypoints(self):
+        """以当前位置为原点规划方形巡航航点。"""
         x0, y0, z0 = self.home
         s = self.side
         self.waypoints = [
@@ -484,6 +499,7 @@ class DepthNavNode(Node):
         return float(np.median(vals))
 
     def _publish_vel(self, vx, vy, vz=0.0):
+        """向 OFFBOARD 管理器发布机体 FLU 速度。"""
         self.cmd = (float(vx), float(vy), float(vz))
         dirs = _move_dirs(vx, vy, vz, self.max_vel)
         self.move_label = '、'.join(dirs) if dirs else '悬停'
@@ -517,6 +533,7 @@ class DepthNavNode(Node):
         return vx, vy, vz, msg
 
     def _tick_control(self):
+        """控制周期：跟径/安全覆盖/可视化模式分支。"""
         if self.pose is None:
             self.phase = '等待位姿（MAVROS/台架）'
             self.cmd = (0.0, 0.0, 0.0)
@@ -611,6 +628,7 @@ class DepthNavNode(Node):
                 f'航点 {self.wp_idx + 1}/{len(self.waypoints)} | {src_tag}')
 
     def _waiting_panel(self) -> np.ndarray:
+        """等待深度数据时的中文提示面板。"""
         panel = np.zeros((360, 960, 3), np.uint8)
         panel[:] = (32, 34, 38)
         if self.source == 'simulate':
@@ -634,6 +652,7 @@ class DepthNavNode(Node):
         return panel
 
     def _tick_viz(self):
+        """OpenCV：深彩|俯视+轨迹+中文状态栏。"""
         if self.depth_m is None:
             if self.out.enabled():
                 if self._last_visual is not None:
@@ -750,6 +769,7 @@ class DepthNavNode(Node):
 
 
 def main(args=None):
+    """解析参数并 spin 深度导航节点。"""
     parser = argparse.ArgumentParser(description='深度相机自主导航')
     parser.add_argument('--source', default='stereonet',
                         choices=['stereonet', 'simulate', 'orbbec', 'realsense'])

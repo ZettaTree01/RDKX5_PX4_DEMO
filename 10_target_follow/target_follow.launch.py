@@ -30,6 +30,7 @@ TMP_LOG_DIR = '/tmp/zettatree_roslog'
 
 
 def generate_launch_description():
+    """例程10：在深度导航栈上叠加行人跟随。"""
     fcu_url = LaunchConfiguration('fcu_url')
     arm = LaunchConfiguration('arm')
     altitude = LaunchConfiguration('altitude')
@@ -58,6 +59,7 @@ def generate_launch_description():
         start_stereo, "'.lower() == 'true'",
     ])
 
+    # 飞控链路
     mavros = IncludeLaunchDescription(
         AnyLaunchDescriptionSource(
             os.path.join(get_package_share_directory('mavros'),

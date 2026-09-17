@@ -149,10 +149,12 @@ def _draw_move_arrows(img, vx, vy, vz, max_vel):
 
 class ObstacleAvoidanceNode(Node):
     """YOLO 估距 → 机体 FLU 反向速度 → 交给 offboard_manager。"""
+
     def __init__(self, show=True, snapshot=None, snapshot_period=5.0,
                  hfov=DEFAULT_HFOV, safe_distance=SAFE_DISTANCE,
                  max_vel=MAX_VEL, score_thres=0.25, nms_thres=0.45,
                  infer_hz=DEFAULT_INFER_HZ):
+        """订阅图像/状态/位姿，按 infer_hz 推理，周期发布机体速度。"""
         super().__init__('obstacle_avoidance')
         self.cmd = (0.0, 0.0, 0.0)
         self.hfov = float(hfov)
@@ -195,21 +197,24 @@ class ObstacleAvoidanceNode(Node):
             fallback_path='/tmp/avoid_snapshot.jpg')
 
         infer_hz = max(1.0, float(infer_hz))
-        self.create_timer(1.0 / infer_hz, self._infer_tick)
-        self.create_timer(0.2, self._preview)
-        self.create_timer(0.05, self._tick)
+        self.create_timer(1.0 / infer_hz, self._infer_tick)  # 推理与帧回调解耦
+        self.create_timer(0.2, self._preview)               # 无图时显示等待面板
+        self.create_timer(0.05, self._tick)                 # 20Hz 发布速度（含超时归零）
         self.get_logger().info(
             f'避障任务已启动，等待 /camera/image_raw '
             f'(safe_distance={self.safe_distance}m, hfov={self.hfov}°, '
             f'max_vel={self.max_vel}m/s, infer_hz={infer_hz})')
 
     def _on_state(self, msg):
+        """同步飞控解锁状态。"""
         self.armed = bool(msg.armed)
 
     def _on_pose(self, msg):
+        """用相对开机高度更新 alt_z（抑制室内气压几十米读数）。"""
         self.alt_z = self._rel_alt.update(msg.pose.position.z)
 
     def image_callback(self, msg):
+        """只缓存最新 BGR 帧与时间戳；推理在 _infer_tick 中进行。"""
         self.last_image = self.get_clock().now()
         try:
             self.latest_frame = image_msg_to_bgr(msg, self.bridge)
@@ -234,6 +239,7 @@ class ObstacleAvoidanceNode(Node):
             speed * float(np.sin(pitch)))
 
     def _phase_txt(self):
+        """底部状态栏用的阶段文案。"""
         if self.airborne:
             return '悬停'
         if self.armed:
@@ -241,11 +247,13 @@ class ObstacleAvoidanceNode(Node):
         return '等待解锁'
 
     def _preview(self):
+        """尚无相机帧时周期性刷新等待面板。"""
         if not self.out.enabled() or self.latest_frame is not None:
             return
         self.out.output(self._waiting_panel())
 
     def _waiting_panel(self):
+        """无图时的占位画面与中文提示。"""
         vis = np.full((360, 640, 3), 36, np.uint8)
         put_cn_lines(vis, [
             ('等待 USB 摄像头…', (230, 230, 230)),
@@ -261,6 +269,7 @@ class ObstacleAvoidanceNode(Node):
         ])
 
     def _infer_tick(self):
+        """按 infer_hz：暗场增强 → YOLO → 最近障碍估距 → 更新避障速度与画面。"""
         frame = self.latest_frame
         if frame is None:
             return
@@ -319,8 +328,10 @@ class ObstacleAvoidanceNode(Node):
                 self.detector.label(cls_id), DEFAULT_HEIGHT)
             real_w = REAL_WIDTHS.get(
                 self.detector.label(cls_id), DEFAULT_WIDTH)
+            # 小孔成像：焦距 × 真实尺寸 / 像素尺寸
             pinhole_h = fx * real_h / box_h
             pinhole_w = fx * real_w / box_w
+            # 画面占比经验：框越高估得越近
             frac = box_h / max(float(frame_h), 1.0)
             fill = FILL_FRAC_AT_REF / max(frac, 0.02) * FILL_DIST_M
             distance = min(float(pinhole_h), float(pinhole_w), float(fill))
@@ -331,6 +342,7 @@ class ObstacleAvoidanceNode(Node):
         return best
 
     def _with_banner(self, vis, lines):
+        """在画面底部叠中文状态栏。"""
         vis = np.ascontiguousarray(vis)
         h, w = vis.shape[:2]
         banner = np.zeros((_BANNER_H, w, 3), np.uint8)
@@ -343,6 +355,7 @@ class ObstacleAvoidanceNode(Node):
         return panel
 
     def _output(self, frame, detections, distance, idx, _yaw, note):
+        """画检测框、避障箭头与底部状态栏。"""
         if not self.out.enabled():
             return
         vis = frame.copy()
@@ -393,6 +406,7 @@ class ObstacleAvoidanceNode(Node):
         ]))
 
     def _status(self, text):
+        """节流日志，约每秒一条。"""
         now = self.get_clock().now().nanoseconds / 1e9
         if now - self._last_status < 1.0:
             return
@@ -400,6 +414,7 @@ class ObstacleAvoidanceNode(Node):
         self.get_logger().info(text)
 
     def _tick(self):
+        """发布机体速度；图像超时则强制零速度。"""
         cmd = self.cmd
         if (self.last_image is None
                 or (self.get_clock().now() - self.last_image).nanoseconds
@@ -412,11 +427,13 @@ class ObstacleAvoidanceNode(Node):
         self.velocity_pub.publish(m)
 
     def destroy_node(self):
+        """关闭画面输出后再销毁节点。"""
         self.out.close()
         super().destroy_node()
 
 
 def main(args=None):
+    """解析避障参数并 spin 节点。"""
     parser = argparse.ArgumentParser(description='摄像头识别避障 ROS 节点')
     parser.add_argument('--show', dest='show', action='store_true',
                         default=True,

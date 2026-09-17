@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""导入校验 ROS 例程模块（不 spin）。需已 source TogetheROS。"""
+"""导入校验 ROS 例程模块（不 spin）。
+
+在已 source TogetheROS/ROS2 的环境下，按路径逐个 load 共享组件与例程脚本，
+确认语法与依赖可导入。失败会打印异常并累计计数；全部成功则退出码 0。
+"""
 import importlib.util
 import sys
 
+# 待校验的模块绝对路径（板端容器内布局）
 MODS = [
     "/app/zettatree_demo/_common/indoor.py",
     "/app/zettatree_demo/_common/offboard_manager.py",
@@ -21,6 +26,10 @@ MODS = [
 
 
 def load(path):
+    """按文件路径动态导入模块；目录加入 sys.path 以解析相对依赖。
+
+    返回模块名（文件名去掉 .py）。导入失败则向上抛出异常。
+    """
     name = path.rsplit("/", 1)[-1][:-3]
     folder = path.rsplit("/", 1)[0]
     if folder not in sys.path:
@@ -33,6 +42,7 @@ def load(path):
 
 
 def main():
+    """依次导入 MODS；有失败则返回 1，否则 0。"""
     failed = 0
     for path in MODS:
         try:

@@ -24,6 +24,7 @@ _QOS = QoSProfile(
 
 
 def _xyz_from_cloud(msg: PointCloud2) -> np.ndarray:
+    """从 PointCloud2 抽取 xyz 浮点数组。"""
     if msg.width == 0 or not msg.fields:
         return np.zeros((0, 3), dtype=np.float32)
     names = {f.name: f for f in msg.fields}
@@ -46,6 +47,7 @@ def _xyz_from_cloud(msg: PointCloud2) -> np.ndarray:
 
 
 def _cloud_xyz(header: Header, pts: np.ndarray) -> PointCloud2:
+    """把 xyz 数组打包成仅含 x/y/z 的 PointCloud2。"""
     pts = np.ascontiguousarray(pts, dtype=np.float32).reshape(-1, 3)
     msg = PointCloud2()
     msg.header = header
@@ -82,8 +84,11 @@ def _voxel_unique(pts: np.ndarray, voxel: float) -> np.ndarray:
 
 
 class PointCloudMapNode(Node):
+    """体素滤波(+可选累积)局部地图节点，输出 /drone/map/points。"""
+
     def __init__(self, in_topic, out_topic, voxel_size, max_points,
                  accumulate, max_range, min_range, frame_id, pub_hz):
+        """accumulate=True 时跨帧累积；否则每帧独立体素图。"""
         super().__init__('pointcloud_map')
         self.voxel = max(0.02, float(voxel_size))
         self.max_points = max(500, int(max_points))
@@ -104,6 +109,7 @@ class PointCloudMapNode(Node):
             f'range=[{self.min_range:.2f},{self.max_range:.2f}]m')
 
     def _on_cloud(self, msg: PointCloud2):
+        """点云回调：距离裁剪 → 体素 → 可选累积 → 限频发布。"""
         if self._busy:
             return
         now = time.monotonic()
@@ -155,6 +161,7 @@ class PointCloudMapNode(Node):
 
 
 def main():
+    """解析参数并 spin 体素地图节点。"""
     p = argparse.ArgumentParser()
     p.add_argument('--in-topic', default='/drone/depth/points')
     p.add_argument('--out-topic', default='/drone/map/points')

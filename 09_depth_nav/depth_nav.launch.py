@@ -27,6 +27,7 @@ TMP_LOG_DIR = '/tmp/zettatree_roslog'
 
 
 def generate_launch_description():
+    """Python/简化 EGO 深度导航：MAVROS + Stereonet + depth_nav + 可选 planner。"""
     fcu_url = LaunchConfiguration('fcu_url')
     arm = LaunchConfiguration('arm')
     altitude = LaunchConfiguration('altitude')
@@ -47,6 +48,7 @@ def generate_launch_description():
         ' OpenCV=深彩|三维；RViz=官方彩色点云+占据地图+路径。arm:=false 监视。',
     ])
 
+    # 飞控链路
     mavros = IncludeLaunchDescription(
         AnyLaunchDescriptionSource(
             os.path.join(get_package_share_directory('mavros'),
@@ -63,6 +65,7 @@ def generate_launch_description():
         }.items(),
     )
 
+    # OFFBOARD 管理器
     manager = ExecuteProcess(
         cmd=[
             'python3', os.path.join(COMMON, 'offboard_manager.py'),

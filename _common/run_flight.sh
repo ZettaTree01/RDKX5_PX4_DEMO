@@ -6,6 +6,7 @@
 #   ros2 launch ...   # 不要用 exec，否则 trap 不会执行
 #
 # 可选：导出 FLIGHT_STOP_STACK=0 跳过视觉/导航杀进程（仅上锁）。
+# 依赖：同目录 stop_nav_stack.sh、emergency_disarm.py。
 
 _DEMO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 _FLIGHT_EXITING=0
@@ -41,6 +42,7 @@ _flight_exit_cleanup() {
   esac
 }
 
+# 注册退出陷阱：正常结束、Ctrl+C、kill 均走清理
 trap '_flight_exit_cleanup EXIT' EXIT
 trap '_flight_exit_cleanup INT' INT
 trap '_flight_exit_cleanup TERM' TERM

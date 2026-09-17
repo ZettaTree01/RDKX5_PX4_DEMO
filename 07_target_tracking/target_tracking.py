@@ -39,14 +39,15 @@ from depth_rgbd import image_msg_to_bgr
 from cn_hud import put_cn_lines
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
-IMAGE_TIMEOUT = 0.5
-ALIGN_ERR = 0.12
-ALIGN_HOLD_SEC = 1.0
-DETECT_PERIOD = 0.12
-TARGET_FILL = 0.22   # H 框高占画面该比例视为合适高度
+IMAGE_TIMEOUT = 0.5       # 秒，图像断流超时则零速悬停
+ALIGN_ERR = 0.12          # 归一化像素误差门限（居中判据）
+ALIGN_HOLD_SEC = 1.0      # 连续对准满该秒数才请求降落
+DETECT_PERIOD = 0.12      # 检测线程周期（秒）
+TARGET_FILL = 0.22        # H 框高占画面该比例视为合适高度
 
 
 def _move_dirs(vx, vy, vz, max_vel):
+    """按机体 FLU 速度拆成前/后/左/右/上升/下降文字标签。"""
     eps = max(1e-4, 0.12 * abs(float(max_vel)))
     dirs = []
     if vx > eps:
@@ -91,6 +92,7 @@ def _h_offset_cmd(err_u, err_v, err_z, thresh=0.08):
 
 
 def _draw_move_arrows(img, vx, vy, vz, max_vel):
+    """右侧画位移箭头：上=升、下=降、左=左、右=右；底部双箭头=前/后。"""
     h, w = img.shape[:2]
     cx, cy = w - 78, h // 2 + 18
     reach = 42
@@ -100,6 +102,7 @@ def _draw_move_arrows(img, vx, vy, vz, max_vel):
     color_act = (0, 220, 255)
 
     def arm(dx, dy, active):
+        """画单条十字臂箭头。"""
         color = color_act if active else color_idle
         thick = 3 if active else 1
         cv2.arrowedLine(
@@ -126,6 +129,7 @@ class HelipadLandingNode(Node):
     def __init__(self, show=True, snapshot=None, snapshot_period=5.0,
                  max_vel=TRACK_VEL_MPS, align_err=ALIGN_ERR,
                  align_hold=ALIGN_HOLD_SEC):
+        """初始化相机订阅、速度/降落发布与后台检测线程。"""
         super().__init__('helipad_landing')
         self.cmd = (0.0, 0.0, 0.0)          # 最新机体 FLU 速度指令
         self.bridge = CvBridge()
@@ -163,6 +167,8 @@ class HelipadLandingNode(Node):
         self.create_subscription(
             PoseStamped, '/mavros/local_position/pose',
             self._on_pose, qos_profile_sensor_data)
+        # 速度与降落只发给 OFFBOARD 管理器
+        # 速度与降落只发给 OFFBOARD 管理器
         self.velocity_pub = self.create_publisher(
             TwistStamped, '/drone/setpoint_velocity/body', 10)
         self.land_pub = self.create_publisher(
@@ -172,8 +178,8 @@ class HelipadLandingNode(Node):
             snapshot_period=snapshot_period,
             title='helipad (q/Esc 退出)',
             fallback_path='/tmp/tracking_snapshot.jpg')
-        self.create_timer(0.05, self._tick)
-        self.create_timer(0.1, self._preview_tick)
+        self.create_timer(0.05, self._tick)         # 20 Hz 发布速度
+        self.create_timer(0.1, self._preview_tick)  # 10 Hz 预览
         self._worker = threading.Thread(target=self._detect_loop, daemon=True)
         self._worker.start()
         self.get_logger().info(
@@ -181,12 +187,15 @@ class HelipadLandingNode(Node):
             f'(max_vel={self.max_velocity}m/s, align={self.align_err})')
 
     def _on_state(self, msg):
+        """更新解锁状态。"""
         self.armed = bool(msg.armed)
 
     def _on_pose(self, msg):
+        """更新相对高度（供 HUD）。"""
         self.alt_z = self._rel_alt.update(msg.pose.position.z)
 
     def _wait_phase(self):
+        """未空中时的阶段文案。"""
         if self.airborne:
             return '悬停搜索'
         if self.armed:
@@ -194,6 +203,7 @@ class HelipadLandingNode(Node):
         return '等待解锁'
 
     def image_callback(self, msg):
+        """相机回调：只解码并缓存最新帧，检测放到后台线程。"""
         self.last_image = self.get_clock().now()
         try:
             frame = image_msg_to_bgr(msg, self.bridge)
@@ -205,18 +215,21 @@ class HelipadLandingNode(Node):
             self.latest_frame = frame
 
     def _preview_tick(self):
+        """定时把最新帧画上 HUD 并输出。"""
         with self._lock:
             frame = None if self.latest_frame is None else self.latest_frame
         if frame is not None:
             self._output(frame)
 
     def _image_ok(self):
+        """图像是否在 IMAGE_TIMEOUT 内仍新鲜。"""
         if self.last_image is None:
             return False
         age = (self.get_clock().now() - self.last_image).nanoseconds
         return age <= int(IMAGE_TIMEOUT * 1e9)
 
     def _request_land(self):
+        """对准保持达标后请求管理器降落上锁（幂等）。"""
         with self._lock:
             if self.landing:
                 return
@@ -243,6 +256,8 @@ class HelipadLandingNode(Node):
         vx = max(-lim, min(lim, -self.kp * error_v * lim))
         vy = max(-lim, min(lim, -self.kp * error_u * lim))
         vz = max(-lim, min(lim, -self.kp * error_z * lim))
+        # 死区：误差很小时清零对应轴，减少抖动
+        # 死区：误差很小时清零对应轴，减少抖动
         if abs(error_u) < 0.06:
             vy = 0.0
         if abs(error_v) < 0.06:
@@ -254,6 +269,7 @@ class HelipadLandingNode(Node):
         return (float(vx), float(vy), float(vz)), aligned, error_u, error_v, error_z
 
     def _detect_loop(self):
+        """后台检测循环：按 DETECT_PERIOD 取最新帧并跑 H 标检测。"""
         while not self._stop:
             t0 = time.monotonic()
             with self._lock:
@@ -269,6 +285,7 @@ class HelipadLandingNode(Node):
             time.sleep(max(0.01, DETECT_PERIOD - (time.monotonic() - t0)))
 
     def _run_detect(self, frame):
+        """单帧检测与对准：无图/未起飞零速；见 H 则算速度并计对准时间。"""
         if self.landing:
             with self._lock:
                 self.cmd = (0.0, 0.0, 0.0)
@@ -332,6 +349,7 @@ class HelipadLandingNode(Node):
             f'cmd=({cmd[0]:+.3f},{cmd[1]:+.3f},{cmd[2]:+.3f})')
 
     def _output(self, frame):
+        """绘制十字准星、H 框、位移箭头与中文状态栏。"""
         if not self.out.enabled():
             return
         vis = frame.copy()
@@ -343,6 +361,8 @@ class HelipadLandingNode(Node):
             airborne = self.airborne
             alt_z = self.alt_z
             h_err = self.h_err
+        # 画面中心十字
+        # 画面中心十字
         cv2.line(vis, (w // 2 - 16, h // 2), (w // 2 + 16, h // 2),
                  (255, 255, 0), 1)
         cv2.line(vis, (w // 2, h // 2 - 16), (w // 2, h // 2 + 16),
@@ -387,6 +407,8 @@ class HelipadLandingNode(Node):
                 extra.append(('上升', (0, 255, 0), (cx - 18, cy - 84)))
         elif airborne and not landing:
             lines.append(('位移 悬停', (0, 255, 255)))
+        # HUD 条按内容缓存，避免每帧重绘中文
+        # HUD 条按内容缓存，避免每帧重绘中文
         hud_key = (w, tuple((t, c) for t, c in lines))
         if hud_key != self._hud_key or self._hud_bar is None:
             bar = np.zeros((bar_h, w, 3), np.uint8)
@@ -399,6 +421,7 @@ class HelipadLandingNode(Node):
         self.out.output(vis)
 
     def _status(self, text):
+        """限频 1 Hz 打状态日志。"""
         now = self.get_clock().now().nanoseconds / 1e9
         if now - self._last_status < 1.0:
             return
@@ -406,6 +429,7 @@ class HelipadLandingNode(Node):
         self.get_logger().info(text)
 
     def _tick(self):
+        """发布机体速度；降落阶段持续请求 land，并强制零速。"""
         with self._lock:
             cmd = self.cmd
             landing = self.landing
@@ -425,6 +449,7 @@ class HelipadLandingNode(Node):
             self.land_pub.publish(msg)
 
     def destroy_node(self):
+        """停止检测线程并关闭画面输出。"""
         self._stop = True
         worker = getattr(self, '_worker', None)
         if worker is not None and worker.is_alive():
@@ -434,6 +459,7 @@ class HelipadLandingNode(Node):
 
 
 def main(args=None):
+    """解析参数并 spin H 标对准降落节点。"""
     parser = argparse.ArgumentParser(description='停机坪 H 标对准降落')
     parser.add_argument('--show', dest='show', action='store_true',
                         default=True, help='输出对准画面（默认输出）')

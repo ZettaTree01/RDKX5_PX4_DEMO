@@ -21,6 +21,7 @@ INDOOR_ALT = '0.1'
 
 
 def generate_launch_description():
+    """单机编队 launch：MAVROS + 管理器 + 编队节点（按 drone_id）。"""
     fcu_url = LaunchConfiguration('fcu_url')
     arm = LaunchConfiguration('arm')
     altitude = LaunchConfiguration('altitude')
@@ -28,6 +29,7 @@ def generate_launch_description():
     drone_id = LaunchConfiguration('drone_id')
     num_drones = LaunchConfiguration('num_drones')
 
+    # 飞控链路：UART 接 PX4
     mavros = IncludeLaunchDescription(
         AnyLaunchDescriptionSource(
             os.path.join(get_package_share_directory('mavros'),
@@ -44,6 +46,7 @@ def generate_launch_description():
         }.items(),
     )
 
+    # OFFBOARD 管理器：设定点 / 解锁 / 降落
     manager = ExecuteProcess(
         cmd=[
             'python3', os.path.join(COMMON, 'offboard_manager.py'),
@@ -57,6 +60,7 @@ def generate_launch_description():
         name='offboard_manager',
     )
 
+    # 室内无 GPS：台架位姿模拟（bench:=true）
     simulator = ExecuteProcess(
         cmd=[
             'python3', os.path.join(BENCH_DIR, 'bench_pose_sim.py'),
@@ -67,6 +71,7 @@ def generate_launch_description():
         condition=IfCondition(bench),
     )
 
+    # 本机编队节点（按 drone_id 区分领队/跟随）
     task = ExecuteProcess(
         cmd=[
             'python3', os.path.join(SCRIPT_DIR, 'formation_flight.py'),

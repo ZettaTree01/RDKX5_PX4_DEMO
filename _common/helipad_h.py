@@ -54,6 +54,7 @@ def _score_bw(roi_bw):
 
 
 def _valid_box(w, h, frame_w, frame_h, min_side=MIN_SIDE):
+    """候选框几何过滤：最短边、不铺满整幅、宽高比落在 H 标合理区间。"""
     if w < min_side or h < min_side:
         return False
     if w > frame_w * MAX_FRAME_FRAC or h > frame_h * MAX_FRAME_FRAC:

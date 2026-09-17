@@ -31,6 +31,7 @@ class FormationFlightNode(Node):
     """单机编队节点：广播本机相对起飞点位移，跟随领队叠加队形偏移。"""
 
     def __init__(self, drone_id=0, num_drones=3):
+        """drone_id 从 0 起；0 号为领队。"""
         super().__init__(f'formation_flight_{drone_id}')
 
         self.drone_id = drone_id
@@ -104,10 +105,12 @@ class FormationFlightNode(Node):
         return offsets
 
     def position_callback(self, msg):
+        """缓存局部位姿，并在首次空中时记录本地原点。"""
         self.current_position = msg.pose.position
         self._maybe_origin()
 
     def _maybe_origin(self):
+        """起飞后锁定本机 local ENU 原点，后续相对位移均相对此点。"""
         if self.local_origin is not None or not self.airborne:
             return
         if self.current_position is None:
@@ -119,14 +122,17 @@ class FormationFlightNode(Node):
         self.get_logger().info('已记录编队本地原点')
 
     def other_position_callback(self, drone_id, msg):
+        """缓存他机相对各自起飞点的位移广播。"""
         self.other_positions[drone_id] = msg.pose.position
 
     def get_leader_position(self):
+        """领队位移：本机为 0 号时返回零；否则取 0 号广播。"""
         if self.drone_id == 0:
             return (0.0, 0.0, 0.0)
         return self.other_positions.get(0)
 
     def calculate_formation_position(self):
+        """目标 = 本机原点 + 领队位移 + 队形偏移。"""
         leader_pos = self.get_leader_position()
         if leader_pos is None:
             return None
@@ -146,6 +152,7 @@ class FormationFlightNode(Node):
         return (target_x, target_y, target_z)
 
     def control_loop(self):
+        """20 Hz：广播本机位移；有队形目标则发给 OFFBOARD 管理器。"""
         self._maybe_origin()
         if self.current_position is None or self.local_origin is None:
             if not self.airborne:
@@ -153,6 +160,7 @@ class FormationFlightNode(Node):
                 self.get_logger().info(wait, throttle_duration_sec=5.0)
             return
 
+        # 广播相对起飞点位移，供他机叠加队形
         displacement = PoseStamped()
         displacement.header.stamp = self.get_clock().now().to_msg()
         displacement.header.frame_id = 'map'
@@ -167,10 +175,11 @@ class FormationFlightNode(Node):
 
         target = self.calculate_formation_position()
         if target is None:
-            return
+            return  # 跟随者尚无领队位移
 
         target_x, target_y, target_z = target
 
+        # 队形目标发给 OFFBOARD 管理器（非直接 MAVROS）
         msg = PoseStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = 'map'
@@ -183,6 +192,7 @@ class FormationFlightNode(Node):
 
 
 def main(args=None):
+    """解析 drone-id/num-drones 并 spin 单机编队节点。"""
     parser = argparse.ArgumentParser(description='编队节点：一机一进程')
     parser.add_argument('--drone-id', type=int, default=0, help='本机编号，0 为领队')
     parser.add_argument('--num-drones', type=int, default=3, help='编队飞机数')

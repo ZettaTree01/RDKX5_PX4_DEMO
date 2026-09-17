@@ -322,6 +322,7 @@ class OffboardManager(Node):
         return MAX_MOTOR_RPM / float(self._esc_max_rpm)
 
     def _limit_body_vel(self, body_velocity):
+        """按电调转速上限整体缩放机体速度指令。"""
         scale = self._rpm_scale()
         vx, vy, vz = body_velocity
         if scale >= 1.0:
@@ -346,6 +347,7 @@ class OffboardManager(Node):
             max(-Z_VEL_MAX, min(Z_VEL_MAX, dz)))
 
     def _position_sp(self, target):
+        """构造本地 ENU 位置设定点（姿态取 hold_orientation）。"""
         sp = PoseStamped()
         sp.header.stamp = self.get_clock().now().to_msg()
         sp.header.frame_id = 'map'
@@ -406,6 +408,7 @@ class OffboardManager(Node):
         return (self.get_clock().now() - self.task_time).nanoseconds < 500_000_000
 
     def _vel_nonzero(self, body_velocity):
+        """台架：速度幅值是否超过 ``BENCH_VEL_EPS``（否则当悬停）。"""
         vx, vy, vz = body_velocity
         return abs(vx) + abs(vy) + abs(vz) >= BENCH_VEL_EPS
 
@@ -418,11 +421,13 @@ class OffboardManager(Node):
             f'台架起飞：约 {RAMP_SECONDS:.1f}s 拉升转速，不依赖气压计高度')
 
     def _bench_elapsed(self):
+        """台架起飞斜坡已过秒数；未开始则 0。"""
         if self._arm_t0 is None:
             return 0.0
         return time.monotonic() - self._arm_t0
 
     def _bench_takeoff_done(self):
+        """斜坡是否已满 ``RAMP_SECONDS``（视为「已起飞」）。"""
         return self._arm_t0 is not None and self._bench_elapsed() >= RAMP_SECONDS
 
     def _bench_takeoff_vel(self):
@@ -464,6 +469,7 @@ class OffboardManager(Node):
         future.add_done_callback(lambda done: self._mode_result(done, mode))
 
     def _mode_result(self, future, mode):
+        """切模式异步回调：失败时打 error。"""
         self.mode_request_pending = False
         try:
             if not future.result().mode_sent:
@@ -505,6 +511,7 @@ class OffboardManager(Node):
         future.add_done_callback(self._disarm_result)
 
     def _disarm_long_result(self, future):
+        """台架强制上锁（CommandLong 400）异步回调。"""
         self._disarm_request_pending = False
         try:
             res = future.result()
@@ -517,6 +524,7 @@ class OffboardManager(Node):
             self.get_logger().error(f'强制上锁服务调用失败: {exc}')
 
     def _disarm_result(self, future):
+        """实飞普通上锁（CommandBool）异步回调。"""
         self._disarm_request_pending = False
         try:
             if future.result().success:
@@ -608,6 +616,7 @@ class OffboardManager(Node):
         future.add_done_callback(self._arm_result)
 
     def _arm_long_result(self, future):
+        """台架强制解锁（21196）异步回调；失败时提示看 FCU 预检原文。"""
         self.arm_request_pending = False
         try:
             res = future.result()
@@ -623,6 +632,7 @@ class OffboardManager(Node):
             self.get_logger().error(f'强制解锁服务调用失败: {exc}')
 
     def _arm_result(self, future):
+        """实飞普通解锁异步回调。"""
         self.arm_request_pending = False
         try:
             if not future.result().success:
@@ -686,6 +696,7 @@ class OffboardManager(Node):
         self.get_logger().info('台架参数队列已就绪：先写解锁参数，再写油门')
 
     def _make_param_request(self, name, value):
+        """按 ParamSetV2 / ParamSet 组装写参请求（int→INTEGER，float→DOUBLE）。"""
         req = ParamSetSrv.Request()
         req.param_id = name
         if _PARAM_SET_V2:
@@ -711,6 +722,7 @@ class OffboardManager(Node):
         return req
 
     def _mark_arm_params_if_done(self):
+        """队列中已无解锁相关参数时，标记可进入解锁等待窗。"""
         pending = {item[0] for item in self._param_queue}
         if not (pending & self._arm_param_names):
             if not self._arm_params_ready:
@@ -720,6 +732,7 @@ class OffboardManager(Node):
                     '解锁相关参数已处理完，等待 EKF 采用新偏置上限后再请求解锁')
 
     def _finish_params(self, reason):
+        """结束写参流程并清空队列状态。"""
         self.params_done = True
         self._arm_params_ready = True
         if self._arm_ready_since is None:
@@ -731,6 +744,7 @@ class OffboardManager(Node):
         self.get_logger().warn(reason)
 
     def _skip_current_param(self, reason):
+        """跳过当前挂起参数（拒绝/超时），继续后续项。"""
         name = self._param_sent_name
         self.param_pending = False
         self._param_sent_name = None
@@ -775,6 +789,7 @@ class OffboardManager(Node):
             lambda done, n=name: self._param_result(done, n))
 
     def _param_result(self, future, name):
+        """写参异步回调：成功则出队，失败则跳过该项。"""
         if self._param_sent_name != name:
             return
         ok = False
@@ -937,6 +952,7 @@ class OffboardManager(Node):
             self._request_mode('OFFBOARD')
 
     def _status_tick(self):
+        """约 2 Hz 打印飞控模式/解锁/高度/参数与任务状态摘要。"""
         pose_z = None if self.pose is None else self.pose[2]
         z_rel = None if (self.home is None or self.pose is None) else (
             self.pose[2] - self.home[2])

@@ -18,12 +18,14 @@ SCRIPT_DIR = os.path.join(DEMO_ROOT, '02_bench_pose_sim')
 
 
 def generate_launch_description():
+    """组装 MAVROS + offboard_manager + 延迟启动的台架位姿模拟器。"""
     fcu_url = LaunchConfiguration('fcu_url')
     arm = LaunchConfiguration('arm')
     altitude = LaunchConfiguration('altitude')
     max_speed = LaunchConfiguration('max_speed')
     rate = LaunchConfiguration('rate')
 
+    # 飞控串口桥：40PIN UART2
     mavros = IncludeLaunchDescription(
         AnyLaunchDescriptionSource(
             os.path.join(get_package_share_directory('mavros'),
@@ -40,6 +42,7 @@ def generate_launch_description():
         }.items(),
     )
 
+    # OFFBOARD 管理器：发设定点；--bench 配合台架模拟
     manager = ExecuteProcess(
         cmd=[
             'python3', os.path.join(COMMON, 'offboard_manager.py'),
@@ -52,6 +55,7 @@ def generate_launch_description():
         name='offboard_manager',
     )
 
+    # 位姿模拟：跟随设定点并回灌 vision_pose
     simulator = ExecuteProcess(
         cmd=[
             'python3', os.path.join(SCRIPT_DIR, 'bench_pose_sim.py'),
@@ -80,5 +84,6 @@ def generate_launch_description():
             description='位姿回灌频率（Hz）；57600 UART 默认 5，与 05–08 一致'),
         mavros,
         manager,
+        # 稍晚启动模拟器，给 MAVROS 一点连接时间
         TimerAction(period=1.0, actions=[simulator]),
     ])

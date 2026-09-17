@@ -18,6 +18,11 @@ import cv2
 
 
 class FrameOutput:
+    """统一管理 OpenCV 弹窗与 JPEG 快照输出。
+
+    无 DISPLAY/WAYLAND 时绝不调用 namedWindow（板端 Qt 后端会 abort 进程）。
+    """
+
     def __init__(self, node, show=False, snapshot=None, snapshot_period=5.0,
                  title='frame (q/Esc 退出)', fallback_path='/tmp/frame.jpg',
                  allow_file_fallback=True):
@@ -50,6 +55,7 @@ class FrameOutput:
                     self._fallback(f'打不开窗口（{e}）')
 
     def _fallback(self, reason):
+        """弹窗失败时的回退：优先已有 snapshot，再 fallback_path，否则只打日志。"""
         if self.snapshot_path:
             self.node.get_logger().warn(
                 f'{reason}，继续写快照：{self.snapshot_path}')
@@ -92,6 +98,7 @@ class FrameOutput:
         return True
 
     def close(self):
+        """关闭 OpenCV 窗口（若曾成功创建）。"""
         if self.window_ok:
             try:
                 cv2.destroyAllWindows()

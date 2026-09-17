@@ -5,6 +5,8 @@
 #   bash start_vision_cam.sh                 # auto：MIPI 优先
 #   bash start_vision_cam.sh --source mipi
 #   bash start_vision_cam.sh --source usb --device /dev/video0 --show
+#
+# 其余参数原样转给 camera_node.py / mipi_camera_bridge.py（如 --show）。
 set -e
 # shellcheck disable=SC1091
 source /app/zettatree_demo/_common/env.sh 2>/dev/null || true
@@ -15,6 +17,7 @@ SOURCE="${CAMERA_SOURCE:-auto}"
 DEVICE="${CAMERA_DEVICE:-/dev/video0}"
 PASSTHRU=()
 
+# 解析 --source / --device（含 launch 风格 camera_source:=）
 while [ $# -gt 0 ]; do
   case "$1" in
     --source)
@@ -36,11 +39,13 @@ done
 SOURCE="$(echo "$SOURCE" | tr 'A-Z' 'a-z')"
 
 _usb() {
+  # USB V4L2 → camera_node.py → /camera/image_raw
   echo "[vision_cam] USB $DEVICE"
   exec python3 "$COMMON/camera_node.py" --device "$DEVICE" "${PASSTHRU[@]}"
 }
 
 _mipi() {
+  # 确保 MIPI/BPU 就绪后，桥接左目到 /camera/image_raw
   echo "[vision_cam] GS130W MIPI → /camera/image_raw（BPU 视觉前置）"
   bash "$STEREO_DIR/ensure_mipi_bpu.sh"
   exec python3 "$COMMON/mipi_camera_bridge.py" "${PASSTHRU[@]}"

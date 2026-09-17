@@ -23,7 +23,16 @@ from frame_output import FrameOutput
 
 
 class MipiCameraBridge(Node):
+    """把 MIPI 左目（或拼接上半幅）转发为统一的 `/camera/image_raw`。"""
+
     def __init__(self, show=False, snapshot=None, snapshot_period=5.0):
+        """订阅 MIPI 话题并可选弹窗/快照。
+
+        Args:
+            show: 是否弹窗。
+            snapshot: JPEG 快照路径；None 表示不强制快照。
+            snapshot_period: 快照间隔（秒）。
+        """
         super().__init__('mipi_camera_bridge')
         self.bridge = CvBridge()
         self.pub = self.create_publisher(
@@ -32,7 +41,7 @@ class MipiCameraBridge(Node):
             self, show=show, snapshot=snapshot,
             snapshot_period=snapshot_period, title='camera (q/Esc 退出)',
             fallback_path='/tmp/camera_snapshot.jpg')
-        self._got_left = False
+        self._got_left = False  # 一旦收到独立左目，就忽略 combine
         self.create_subscription(
             Image, '/image_left_raw', self._on_left, qos_profile_sensor_data)
         self.create_subscription(
@@ -41,6 +50,7 @@ class MipiCameraBridge(Node):
             'MIPI→/camera/image_raw：优先 /image_left_raw，否则拆 combine 上半幅')
 
     def _publish_bgr(self, bgr, stamp, frame_id='camera'):
+        """发布 bgr8 Image，并交给 FrameOutput 显示/快照。"""
         if bgr is None or bgr.size == 0:
             return
         msg = self.bridge.cv2_to_imgmsg(bgr, 'bgr8')
@@ -53,6 +63,7 @@ class MipiCameraBridge(Node):
         self.out.output(bgr)
 
     def _on_left(self, msg: Image):
+        """独立左目话题回调（优先路径）。"""
         self._got_left = True
         try:
             bgr = image_msg_to_bgr(msg, self.bridge)
@@ -62,6 +73,7 @@ class MipiCameraBridge(Node):
         self._publish_bgr(bgr, msg.header.stamp, msg.header.frame_id)
 
     def _on_combine(self, msg: Image):
+        """双目拼接图回调：仅当从未收到 left 时拆上半幅作为左目。"""
         if self._got_left:
             return
         try:
@@ -75,6 +87,7 @@ class MipiCameraBridge(Node):
 
 
 def main(args=None):
+    """解析 --show/--snapshot，spin 至用户按 q/Esc 或 Ctrl+C。"""
     parser = argparse.ArgumentParser(description='MIPI 左目转发 /camera/image_raw')
     parser.add_argument('--show', dest='show', action='store_true', default=False)
     parser.add_argument('--no-show', dest='show', action='store_false')

@@ -71,6 +71,7 @@ class RelAlt:
     """
 
     def __init__(self, jump_m=1.5):
+        """``jump_m``：相邻原始 z 跳变超过该值（米）时重定原点。"""
         self.z0 = None
         self.raw = None
         self.jump_m = jump_m

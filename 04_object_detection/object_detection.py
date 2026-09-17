@@ -37,6 +37,8 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
 class DroneDetectionNode(Node):
+    """订阅相机图 → BPU YOLO 推理 → 发布检测事件并可选可视化。"""
+
     def __init__(self, show=True, snapshot=None, snapshot_period=5.0,
                  score_thres=0.25, nms_thres=0.45):
         super().__init__('drone_detection')
@@ -62,6 +64,7 @@ class DroneDetectionNode(Node):
         self.get_logger().info('无人机检测节点已启动')
 
     def image_callback(self, msg):
+        """图像回调：解码 → 推理 → 画框输出；有目标则发布检测 PoseStamped。"""
         try:
             frame = image_msg_to_bgr(msg, self.bridge)
         except Exception as exc:
@@ -86,6 +89,7 @@ class DroneDetectionNode(Node):
             self.publish_detection(detections[0])
 
     def _output(self, frame, detections, note=None):
+        """在副本上画检测框与状态文字，经 FrameOutput 弹窗/快照。"""
         if not self.out.enabled():
             return
         vis = frame.copy()
@@ -100,6 +104,7 @@ class DroneDetectionNode(Node):
         self.out.output(vis)
 
     def publish_detection(self, detection):
+        """发布「检测到目标」事件（不含写死三维坐标）。"""
         # 只发布"检测到目标"这一事件；像素框中心 ≠ map 系三维坐标，
         # 真实三维位置需配合深度/位姿估计，此处不写死坐标。
         msg = PoseStamped()
@@ -108,11 +113,13 @@ class DroneDetectionNode(Node):
         self.detection_pub.publish(msg)
 
     def destroy_node(self):
+        """关闭画面输出后再销毁节点。"""
         self.out.close()
         super().destroy_node()
 
 
 def main(args=None):
+    """解析显示/阈值参数并 spin 检测节点。"""
     parser = argparse.ArgumentParser(description='目标检测 ROS 节点')
     # 必须显式 default=True：--show/--no-show 共用 dest，argparse 取
     # 第一个 action 的默认值，store_true 的默认值是 False

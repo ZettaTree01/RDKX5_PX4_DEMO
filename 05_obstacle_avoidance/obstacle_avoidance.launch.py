@@ -19,6 +19,7 @@ INDOOR_MAX_VEL = '0.025'
 
 
 def generate_launch_description():
+    """组装 MAVROS、OFFBOARD、USB 相机、避障节点；可选台架位姿模拟。"""
     fcu_url = LaunchConfiguration('fcu_url')
     arm = LaunchConfiguration('arm')
     altitude = LaunchConfiguration('altitude')
@@ -62,6 +63,7 @@ def generate_launch_description():
         name='offboard_manager',
     )
 
+    # 室内无 GPS：bench=true 时回灌假视觉位姿
     simulator = ExecuteProcess(
         cmd=[
             'python3', os.path.join(BENCH_DIR, 'bench_pose_sim.py'),
@@ -72,6 +74,7 @@ def generate_launch_description():
         condition=IfCondition(bench),
     )
 
+    # 本例程默认 USB 单目；检测节点负责画面
     camera_node = ExecuteProcess(
         cmd=[
             'bash', os.path.join(COMMON, 'start_vision_cam.sh'),
@@ -142,6 +145,7 @@ def generate_launch_description():
         mavros,
         manager,
         camera_node,
+        # 稍晚启动避障，等相机话题就绪
         TimerAction(period=2.0, actions=[task]),
         # 台架位姿 5 Hz，给 57600 UART 留出参数拉取带宽。
         TimerAction(period=1.0, actions=[simulator]),

@@ -78,6 +78,7 @@ class _PrintLog:
 
 
 def first_existing_model():
+    """按 MODEL_CANDIDATES 顺序返回首个存在的模型路径；全无则回退列表首项。"""
     for path in MODEL_CANDIDATES:
         if os.path.isfile(path):
             return path
@@ -97,6 +98,7 @@ def resolve_input_hw(shape):
 
 
 def sigmoid(x):
+    """逐元素 sigmoid，用于 logits → 置信度。"""
     return 1.0 / (1.0 + np.exp(-x))
 
 
@@ -265,9 +267,11 @@ class YoloDetector:
 
     @property
     def loaded(self):
+        """模型是否已成功加载到 BPU。"""
         return self.model is not None
 
     def _load_class_names(self):
+        """从候选路径加载 COCO 类别名列表；失败返回空列表。"""
         for path in CLASS_NAMES_CANDIDATES:
             if os.path.isfile(path):
                 try:
@@ -280,6 +284,7 @@ class YoloDetector:
         return []
 
     def _load_model(self, model_path):
+        """加载量化 .bin；输出分支数须为 2×STRIDES，否则视为不兼容。"""
         try:
             model = hbm_runtime.HB_HBMRuntime(model_path)
             model_name = model.model_names[0]
@@ -313,6 +318,7 @@ class YoloDetector:
                 '/app/pydev_demo 官方 YOLOv8 示例')
 
     def label(self, cls_id):
+        """类别 id → 可读名称；越界时返回 ``cls{N}``。"""
         if 0 <= cls_id < len(self.class_names):
             return self.class_names[cls_id]
         return f'cls{cls_id}'
@@ -320,6 +326,7 @@ class YoloDetector:
     # ---- 推理链路 ----
 
     def _infer(self, frame):
+        """BGR → letterbox → NV12 → ``hbm_runtime.run``，返回原始输出字典。"""
         resized = resized_image(frame, self.input_w, self.input_h)
         y, uv = bgr_to_nv12_planes(resized)
         nv12 = np.concatenate((y.reshape(-1), uv.reshape(-1)), axis=0)

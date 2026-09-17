@@ -12,12 +12,14 @@ SCRIPT_DIR = os.path.join(DEMO_ROOT, '04_object_detection')
 
 
 def generate_launch_description():
+    """拉起视觉相机（默认 MIPI）与目标检测节点。"""
     camera_source = LaunchConfiguration('camera_source')
     camera_device = LaunchConfiguration('camera_device')
     show = LaunchConfiguration('show')
     score_thres = LaunchConfiguration('score_thres')
     nms_thres = LaunchConfiguration('nms_thres')
 
+    # 相机只发话题；检测节点负责画面输出
     camera_node = ExecuteProcess(
         cmd=[
             'bash', os.path.join(COMMON, 'start_vision_cam.sh'),

@@ -34,6 +34,7 @@ _LATCHED = QoSProfile(
 
 
 def _yaw_to_quat(yaw: float) -> Quaternion:
+    """偏航角 → 仅绕 z 的四元数。"""
     q = Quaternion()
     q.z = math.sin(yaw * 0.5)
     q.w = math.cos(yaw * 0.5)
@@ -41,7 +42,10 @@ def _yaw_to_quat(yaw: float) -> Quaternion:
 
 
 class PoscmdToOffboard(Node):
+    """EGO PositionCommand → /drone/setpoint_position/local。"""
+
     def __init__(self):
+        """优先订 quadrotor_msgs；否则按 PoseStamped 转发。"""
         super().__init__('poscmd_to_offboard')
         self.declare_parameter('cmd_topic', '/position_cmd')
         self.declare_parameter('out_topic', '/drone/setpoint_position/local')
@@ -78,11 +82,13 @@ class PoscmdToOffboard(Node):
         self.create_timer(1.0, self._maybe_trigger)
 
     def _on_zref(self, msg: Float64):
+        """接收 pose_to_odom 锁定的 z 基准（只记一次）。"""
         if self._z0 is None:
             self._z0 = float(msg.data)
             self.get_logger().info(f'z 对齐基准 z0={self._z0:.3f}')
 
     def _maybe_trigger(self):
+        """空中后发一次 traj_start_trigger，启动 EGO 航点规划。"""
         if self._sent_trigger:
             return
         if self.get_parameter('wait_airborne').value and not self.airborne:
@@ -95,6 +101,7 @@ class PoscmdToOffboard(Node):
         self.get_logger().info('已发 /traj_start_trigger，启动 EGO 航点规划')
 
     def _on_poscmd(self, msg):
+        """PositionCommand 回调：z_align 时加回 z0 再发给管理器。"""
         if self.get_parameter('wait_airborne').value and not self.airborne:
             return
         if self.z_align and self._z0 is None:
@@ -118,6 +125,7 @@ class PoscmdToOffboard(Node):
                 f'({msg.position.x:.2f},{msg.position.y:.2f},{msg.position.z:.2f})')
 
     def _on_pose(self, msg: PoseStamped):
+        """无 quadrotor_msgs 时的 PoseStamped 退化转发。"""
         if self.get_parameter('wait_airborne').value and not self.airborne:
             return
         if self.z_align and self._z0 is None:
@@ -132,6 +140,7 @@ class PoscmdToOffboard(Node):
 
 
 def main():
+    """启动 poscmd_to_offboard 桥接节点。"""
     rclpy.init()
     node = PoscmdToOffboard()
     try:

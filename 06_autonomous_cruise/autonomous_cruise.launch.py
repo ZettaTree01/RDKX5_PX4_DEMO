@@ -18,6 +18,7 @@ INDOOR_ALT = '0.1'
 
 
 def generate_launch_description():
+    """组装 MAVROS、OFFBOARD 管理器、台架模拟、相机与巡航任务节点。"""
     fcu_url = LaunchConfiguration('fcu_url')
     arm = LaunchConfiguration('arm')
     altitude = LaunchConfiguration('altitude')
@@ -26,6 +27,7 @@ def generate_launch_description():
     camera_source = LaunchConfiguration('camera_source')
     show = LaunchConfiguration('show')
 
+    # 飞控链路：UART 接 PX4，插件列表用演示仓共用配置
     mavros = IncludeLaunchDescription(
         AnyLaunchDescriptionSource(
             os.path.join(get_package_share_directory('mavros'),
@@ -42,6 +44,7 @@ def generate_launch_description():
         }.items(),
     )
 
+    # OFFBOARD 管理器：接管设定点、解锁与降落；arm/bench 由 launch 参数决定
     manager = ExecuteProcess(
         cmd=[
             'python3', os.path.join(COMMON, 'offboard_manager.py'),
@@ -55,6 +58,7 @@ def generate_launch_description():
         name='offboard_manager',
     )
 
+    # 室内无 GPS：台架位姿模拟向 EKF 喂外部视觉（bench:=true 时拉起）
     simulator = ExecuteProcess(
         cmd=[
             'python3', os.path.join(BENCH_DIR, 'bench_pose_sim.py'),
@@ -65,6 +69,7 @@ def generate_launch_description():
         condition=IfCondition(bench),
     )
 
+    # 视觉相机：默认 auto（MIPI 优先），供巡航节点 YOLO 与画面预览
     vision_cam = ExecuteProcess(
         cmd=[
             'bash', os.path.join(COMMON, 'start_vision_cam.sh'),
@@ -76,6 +81,7 @@ def generate_launch_description():
         name='vision_cam',
     )
 
+    # 巡航任务节点：规划方形航点并到点拍照
     task = ExecuteProcess(
         cmd=[
             'python3', os.path.join(SCRIPT_DIR, 'autonomous_cruise.py'),

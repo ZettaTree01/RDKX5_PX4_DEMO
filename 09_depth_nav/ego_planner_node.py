@@ -41,12 +41,14 @@ _QOS = QoSProfile(
 
 
 def _yaw_from_quat(q) -> float:
+    """四元数 → 偏航角。"""
     siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
     cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
     return math.atan2(siny_cosp, cosy_cosp)
 
 
 def _xyz_from_cloud(msg: PointCloud2, max_points: int = 12000) -> np.ndarray:
+    """抽稀读取点云 xyz。"""
     names = {f.name: f for f in msg.fields}
     if not all(k in names for k in ('x', 'y', 'z')):
         return np.zeros((0, 3), dtype=np.float32)
@@ -67,6 +69,7 @@ def _xyz_from_cloud(msg: PointCloud2, max_points: int = 12000) -> np.ndarray:
 
 
 def _cloud_xyz(header: Header, pts: np.ndarray) -> PointCloud2:
+    """xyz → PointCloud2。"""
     msg = PointCloud2()
     msg.header = header
     msg.height = 1
@@ -86,6 +89,7 @@ def _cloud_xyz(header: Header, pts: np.ndarray) -> PointCloud2:
 
 
 def _path_msg(header: Header, pts) -> Path:
+    """路径点列表 → nav_msgs/Path。"""
     path = Path()
     path.header = header
     for x, y, z in pts:
@@ -116,6 +120,7 @@ def _ros_cam_to_map(pts_ros: np.ndarray, pose_xyz, yaw: float) -> np.ndarray:
 
 
 def _smooth_path(path, win: int = 3):
+    """滑动窗口平滑折线路径（保留端点）。"""
     if len(path) < 3:
         return path
     out = [path[0]]
@@ -130,8 +135,11 @@ def _smooth_path(path, win: int = 3):
 
 
 class EgoPlannerBridge(Node):
+    """Python 同构 EGO：占据图 + A* + 跟径速度，供对照/无 C++ 时使用。"""
+
     def __init__(self, cloud_topic: str, max_vel: float = 0.02,
                  resolution: float = 0.15, inflation: float = 0.25):
+        """订阅点云/位姿/目标，发布占据、路径与机体速度建议。"""
         super().__init__('ego_planner_bridge')
         self.max_vel = float(max_vel)
         self.pose = None
@@ -174,15 +182,18 @@ class EgoPlannerBridge(Node):
             f'inf={inflation} max_vel={max_vel}')
 
     def _on_pose(self, msg: PoseStamped):
+        """缓存机体位姿与偏航。"""
         p = msg.pose.position
         self.pose = (float(p.x), float(p.y), float(p.z))
         self.yaw = _yaw_from_quat(msg.pose.orientation)
 
     def _on_goal(self, msg: PoseStamped):
+        """更新局部规划目标。"""
         p = msg.pose.position
         self.goal = (float(p.x), float(p.y), float(p.z))
 
     def _on_cloud(self, msg: PointCloud2):
+        """点云入库占据图并限频触发重规划。"""
         now = time.monotonic()
         if now - self._last_cloud_t < 0.15:
             return
@@ -191,6 +202,7 @@ class EgoPlannerBridge(Node):
             return
         try:
             pts_ros = _xyz_from_cloud(msg, max_points=10000)
+            # 相机系 → map，再写入局部占据栅格
             pts_map = _ros_cam_to_map(pts_ros, self.pose, self.yaw)
             self.occ.integrate_points(pts_map, self.pose)
         except Exception as exc:
@@ -198,6 +210,7 @@ class EgoPlannerBridge(Node):
                 f'点云建图失败: {exc}', throttle_duration_sec=2.0)
 
     def _tick_plan(self):
+        """A* 规划并发布占据/路径可视化。"""
         if self.pose is None:
             return
         header = Header()
@@ -231,6 +244,7 @@ class EgoPlannerBridge(Node):
             throttle_duration_sec=2.0)
 
     def _tick_follow(self):
+        """沿最优路径计算机体速度建议并发布。"""
         if self.pose is None or not self._path:
             return
         vx, vy, vz = path_follow_body_vel(
@@ -245,6 +259,7 @@ class EgoPlannerBridge(Node):
 
 
 def main(args=None):
+    """解析参数并 spin Python EGO 桥接节点。"""
     parser = argparse.ArgumentParser(description='EGO local map + A* bridge')
     parser.add_argument(
         '--cloud-topic',

@@ -66,6 +66,7 @@ TOPIC_PRESETS = {
 
 
 def _topic_or_none(value):
+    """把空串/占位符转成 None，其余原样返回话题名。"""
     if value is None:
         return None
     s = str(value).strip()
@@ -75,6 +76,8 @@ def _topic_or_none(value):
 
 
 class DepthPointCloudNode(Node):
+    """深度点云节点：对接 Stereonet/双目/RGB-D，OpenCV 深彩|俯视。"""
+
     def __init__(self, source='simulate', depth_topic=None, color_topic=None,
                  info_topic=None, combine_topic=None, show=True, snapshot=None,
                  snapshot_period=5.0, stride=4, max_range=5.0,
@@ -82,6 +85,7 @@ class DepthPointCloudNode(Node):
                  rotate_cw=90, panel_mode='depth_cloud', stereo_matcher='bm',
                  stereo_period=1.0, min_range=0.4, opencv_fallback=False,
                  map_enable=False, publish_filtered_cloud=True, publish_hz=4.0):
+        """按 source 订阅对应话题；stereonet 路径优先用官方深彩与点云。"""
         super().__init__('depth_pointcloud')
         self.bridge = CvBridge()
         self.source = source
@@ -295,6 +299,7 @@ class DepthPointCloudNode(Node):
         return pts
 
     def _xyz_array_from_cloud(self, msg: PointCloud2) -> np.ndarray:
+        """解析本节点发出的 xyz-only 点云（offset 0/4/8）。"""
         if msg.width <= 0:
             return np.zeros((0, 3), dtype=np.float32)
         step = int(msg.point_step)
@@ -309,6 +314,7 @@ class DepthPointCloudNode(Node):
         return pts
 
     def _update_map(self, pts: np.ndarray):
+        """可选累积体素地图；超上限时按距离保留近处点。"""
         z = pts[:, 2]
         r2 = pts[:, 0] ** 2 + pts[:, 1] ** 2 + pts[:, 2] ** 2
         m = ((z > self.min_range)
@@ -407,6 +413,7 @@ class DepthPointCloudNode(Node):
         return out
 
     def _tick_stereo_official_wait(self):
+        """等待 Stereonet 深彩；已到则不再刷等待页（点云可稍后）。"""
         # 深彩已到则不再用等待页覆盖；点云可稍后到
         if self._last_visual is not None or self._stereo_visual_ok:
             return
@@ -422,6 +429,7 @@ class DepthPointCloudNode(Node):
             + ' / '.join(miss))
 
     def _on_info(self, msg: CameraInfo):
+        """更新内参；若 P[0,3] 含基线则同步 baseline_m。"""
         if msg.k[0] > 1.0:
             self.fx = float(msg.k[0])
             self.fy = float(msg.k[4])
@@ -438,6 +446,7 @@ class DepthPointCloudNode(Node):
             pass
 
     def _on_depth(self, msg: Image):
+        """通用深度图回调（orbbec/realsense 等）。"""
         try:
             arr = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
             self.depth_m = depth_msg_to_meters(np.asarray(arr), msg.encoding)
@@ -448,6 +457,7 @@ class DepthPointCloudNode(Node):
             self.get_logger().warn(f'深度图转换失败: {exc}', throttle_duration_sec=2.0)
 
     def _on_color(self, msg: Image):
+        """彩色图回调，支持 NV12/BGR。"""
         try:
             enc = (msg.encoding or '').lower()
             if enc in ('nv12', 'yuv420', 'yuv420p'):
@@ -477,6 +487,7 @@ class DepthPointCloudNode(Node):
         return depth_r, color_r, fx, fy, cx, cy
 
     def _maybe_publish(self):
+        """限频处理深度并发布点云/画面（防重入）。"""
         if self.depth_m is None:
             return
         now = time.monotonic()
@@ -500,6 +511,7 @@ class DepthPointCloudNode(Node):
             self._busy = False
 
     def _tick_publish(self):
+        """定时驱动非官方 Stereonet 路径的发布。"""
         if self._stereo_official:
             return
         if self.depth_m is None:
@@ -509,6 +521,7 @@ class DepthPointCloudNode(Node):
         self._maybe_publish()
 
     def _on_combine(self, msg: Image):
+        """MIPI 拼接图回调（CPU 立体匹配路径）。"""
         try:
             self._combine_bgr = image_msg_to_bgr(msg, self.bridge)
             self._combine_stamp = time.monotonic()
@@ -517,6 +530,7 @@ class DepthPointCloudNode(Node):
                 f'双目拼接图转换失败: {exc}', throttle_duration_sec=2.0)
 
     def _smooth_depth(self, depth_m):
+        """深度清洗 + EMA 时域平滑，减轻帧间闪烁。"""
         d = clean_depth_m(depth_m, self.min_range, self.max_range)
         if self._depth_ema is None or self._depth_ema.shape != d.shape:
             self._depth_ema = d
@@ -529,6 +543,7 @@ class DepthPointCloudNode(Node):
         return self._depth_ema
 
     def _depth_panel(self, depth_m, color_bgr):
+        """生成深彩叠加图（可选与彩色融合）。"""
         viz = colorize_depth(depth_m, self.max_range, self.min_range)
         if color_bgr is not None:
             if color_bgr.shape[:2] != viz.shape[:2]:
@@ -547,6 +562,7 @@ class DepthPointCloudNode(Node):
         return viz
 
     def _process(self, depth_m, color_bgr, fx=None, fy=None, cx=None, cy=None):
+        """深度→点云发布，并按 panel_mode 输出 OpenCV 面板。"""
         fx = self.fx if fx is None else fx
         fy = self.fy if fy is None else fy
         cx = self.cx if cx is None else cx
@@ -589,6 +605,7 @@ class DepthPointCloudNode(Node):
             self.out.output(panel)
 
     def _waiting(self, text: str):
+        """等待页：无画面时写日志，有画面时显示中文提示。"""
         if not self.out.enabled():
             self.get_logger().warn(text.replace('\n', ' | '),
                                    throttle_duration_sec=3.0)
@@ -601,6 +618,7 @@ class DepthPointCloudNode(Node):
         self.out.output(panel)
 
     def _tick_simulate(self):
+        """模拟房间深度，便于无相机时联调可视化。"""
         w, h = 320, 240
         self.fx = DEFAULT_FX * (w / 640.0)
         self.fy = DEFAULT_FY * (h / 480.0)
@@ -619,6 +637,7 @@ class DepthPointCloudNode(Node):
         self._process(depth, self._sim_rgb)
 
     def _tick_stereo(self):
+        """CPU OpenCV 立体匹配：拼接图→视差→深度→点云。"""
         if self._busy:
             return
         if self._combine_bgr is None:
@@ -661,6 +680,7 @@ class DepthPointCloudNode(Node):
 
 
 def main(args=None):
+    """解析数据源参数并 spin 深度点云节点。"""
     parser = argparse.ArgumentParser(description='深度相机点云建模')
     parser.add_argument('--source', default='stereonet',
                         choices=['simulate', 'orbbec', 'realsense',

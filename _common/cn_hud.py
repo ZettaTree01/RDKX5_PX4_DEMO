@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""板端画面中文叠加。无中文字体时退回 ASCII。"""
+"""板端画面中文叠加。无中文字体时退回 ASCII。
+
+优先用文泉驿 / Noto CJK / 微软雅黑等 TrueType，经 PIL 绘制；
+找不到字体时把常见中文 HUD 词替换为英文短词，再用 OpenCV ``putText``。
+"""
 import os
 
 import cv2
@@ -22,7 +26,7 @@ _CN_ASCII = (
     ('等待 Stereonet 深度图', 'Waiting Stereonet depth'),
     ('等待 Stereonet / 行人检测', 'Waiting Stereonet / person'),
     ('等待 Stereonet（GS130W / 例程8）', 'Waiting Stereonet'),
-    ('本例程为单目 USB，不用深度相机', 'USB camera, not depth'),
+    ('单目USB普通摄像头，不用深度相机', 'USB camera'),
     ('等待 USB 摄像头', 'Waiting USB camera'),
     ('等待相机画面', 'Waiting camera'),
     ('等待 MIPI 拼接图', 'Waiting MIPI combine'),
@@ -80,6 +84,7 @@ _CN_ASCII = (
 
 
 def _cn_font(size):
+    """按字号缓存并返回 PIL TrueType 字体；找不到则返回 None。"""
     key = int(size)
     if key in _CN_FONT_CACHE:
         return _CN_FONT_CACHE[key]
@@ -102,6 +107,7 @@ def _cn_font(size):
 
 
 def _ascii_hud(text):
+    """无中文字体时：按词表替换常见中文，再去掉剩余非 ASCII。"""
     out = text
     for cn, en in _CN_ASCII:
         out = out.replace(cn, en)
@@ -110,6 +116,15 @@ def _ascii_hud(text):
 
 
 def put_cn_lines(img, lines, origin=(10, 8), size=22):
+    """在 BGR 图上叠加多行中文（或 ASCII 回退）。
+
+    Args:
+        img: OpenCV BGR 图，就地修改。
+        lines: 每项为 ``(text, color_bgr)`` 或 ``(text, color_bgr, (x,y))``；
+            未给坐标时从 ``origin`` 起按行高自动排布。
+        origin: 自动排布时的左上起点。
+        size: 字号（像素，传给 TrueType）。
+    """
     if not lines:
         return
     font = _cn_font(size)
@@ -134,6 +149,7 @@ def put_cn_lines(img, lines, origin=(10, 8), size=22):
     pil = Image.fromarray(rgb)
     draw = ImageDraw.Draw(pil)
     for text, color, xy in positioned:
+        # OpenCV BGR → PIL RGB；先画黑描边再画正文，提升可读性
         rgb_c = (int(color[2]), int(color[1]), int(color[0]))
         x, yy = xy
         for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):

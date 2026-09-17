@@ -66,7 +66,11 @@ def colorize_depth(depth_m: np.ndarray, max_range: float = 4.0,
 @lru_cache(maxsize=32)
 def _cached_rays(h: int, w: int, stride: int,
                  fx: float, fy: float, cx: float, cy: float):
-    """Cache normalized camera rays; avoids rebuilding meshgrid every frame."""
+    """缓存归一化相机射线 (rx, ry) 与像素索引，避免每帧重建 meshgrid。
+
+    Returns:
+        (rx, ry, uu_i, vv_i)，形状与 stride 采样后的深度网格一致。
+    """
     us = np.arange(0, w, stride, dtype=np.float32)
     vs = np.arange(0, h, stride, dtype=np.float32)
     uu, vv = np.meshgrid(us, vs, indexing='xy')
@@ -234,6 +238,14 @@ def _rotate_enu_pts(pts, a: float):
 
 
 def _draw_polyline(img, pts_xy, color, thickness=2):
+    """在俯视图上按 ENU 米制坐标画折线（与 ``_project_top`` 同比例尺）。
+
+    Args:
+        img: 俯视 BGR 图（就地绘制）。
+        pts_xy: 点列，每点至少含 (x, y)。
+        color: BGR 颜色。
+        thickness: 线宽。
+    """
     size = img.shape[0]
     span = 6.0
     scale = size / span
@@ -435,12 +447,13 @@ def points_to_cloud2_xyz(pts, stamp=None, frame_id: str = 'camera_depth_optical_
 
 
 class DepthSourceClock:
-    """模拟源用单调时钟。"""
+    """模拟深度源用的单调时钟（相对构造时刻的秒数）。"""
 
     def __init__(self):
         self._t0 = time.monotonic()
 
     def now(self) -> float:
+        """返回自构造以来经过的秒数。"""
         return time.monotonic() - self._t0
 
 

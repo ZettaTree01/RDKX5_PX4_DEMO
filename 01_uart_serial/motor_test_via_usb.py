@@ -73,6 +73,7 @@ class Px4Link:
     """MAVLink 串口链路：心跳 + shell + 消息收集。"""
 
     def __init__(self, port, baud):
+        """打开串口并创建 GCS 侧 MAVLink 解析器（sys=255）。"""
         self.ser = serial.Serial(port, baud, timeout=0.5)
         self.mav = mavlink.MAVLink(None, srcSystem=255, srcComponent=1)
         self.mav.robust_parsing = True
@@ -81,13 +82,14 @@ class Px4Link:
         self._scratch = []
 
     def close(self):
+        """关闭串口。"""
         try:
             self.ser.close()
         except Exception:
             pass
 
     def _pump(self, seconds, ids):
-        """读取若干秒，返回指定 msgid 的消息列表。"""
+        """读取若干秒串口数据，返回指定 msgid 的消息列表；顺带更新心跳状态。"""
         out, t0 = [], time.time()
         while time.time() - t0 < seconds:
             b = self.ser.read(self.ser.in_waiting or 1)
@@ -106,6 +108,7 @@ class Px4Link:
         return out
 
     def wait_heartbeat(self, timeout=15.0):
+        """阻塞等待首个 HEARTBEAT；超时返回 None。"""
         for m in self._pump(timeout, {MSG_HEARTBEAT}):
             return m
         return None
@@ -118,12 +121,14 @@ class Px4Link:
             msgid, float(interval), 0, 0, 0, 0, 0).pack(self.mav))
 
     def servo_line(self, m):
+        """把 SERVO_OUTPUT_RAW 八通道格式化成一行 PWM 文本。"""
         vals = [m.servo1_raw, m.servo2_raw, m.servo3_raw, m.servo4_raw,
                 m.servo5_raw, m.servo6_raw, m.servo7_raw, m.servo8_raw]
         return ' '.join('%4d' % v if v else '   0' for v in vals)
 
     # ---- shell ----
     def shell_open(self):
+        """打开 MAVLink shell（SERIAL_CONTROL），进入可交互状态。"""
         self._shell_send(b'', FLAG_RESPOND | FLAG_EXCLUSIVE | FLAG_BLOCKING)
         time.sleep(1.2)
         self._pump(1.0, {MSG_SERIAL_CONTROL})
@@ -132,6 +137,7 @@ class Px4Link:
         self._pump(1.0, {MSG_SERIAL_CONTROL})
 
     def _shell_send(self, data=b'', flags=FLAG_RESPOND):
+        """经 SERIAL_CONTROL 向飞控 shell 设备写入最多 70 字节。"""
         d = bytes(data) + b'\0' * (70 - len(data))
         self.ser.write(self.mav.serial_control_encode(
             SHELL_DEV, flags, 0, 0, len(data), d).pack(self.mav))
@@ -144,6 +150,7 @@ class Px4Link:
                         self._pump(read, {MSG_SERIAL_CONTROL})).decode('utf-8', 'replace')
 
     def shell_close(self):
+        """关闭 shell 会话（flags=0）。"""
         self._shell_send(b'', 0)
 
     def shell_write(self, cmd):
@@ -163,6 +170,7 @@ class Px4Link:
 
 
 def main():
+    """解析参数、安全校验、经 shell 执行 actuator_test，并监控 PWM/ESC。"""
     ap = argparse.ArgumentParser(
         description='PX4 电机测试（拆桨后使用）',
         formatter_class=argparse.RawDescriptionHelpFormatter)

@@ -37,8 +37,17 @@ WINDOW_NAME = 'camera (q/Esc 退出)'
 
 
 class CameraNode(Node):
+    """USB V4L2 摄像头节点：约 15 Hz 发布 ``/camera/image_raw``（bgr8）。"""
+
     def __init__(self, device='/dev/video0', show=False,
                  snapshot=None, snapshot_period=5.0):
+        """打开 ``device``，配置 MJPEG/640x480/15fps，并创建定时发布。
+
+        Args:
+            device: 设备路径或序号（如 ``/dev/video0`` / ``0``）。
+            show: 是否弹窗。
+            snapshot / snapshot_period: 快照路径与间隔（秒）。
+        """
         super().__init__('camera_node')
 
         self.image_pub = self.create_publisher(
@@ -48,6 +57,7 @@ class CameraNode(Node):
         source = int(device) if str(device).isdigit() else device
         self.cap = cv2.VideoCapture(source)
         try:
+            # 优先 MJPEG，减轻 USB 带宽与解码负担
             self.cap.set(cv2.CAP_PROP_FOURCC,
                          cv2.VideoWriter_fourcc(*'MJPG'))
         except Exception:
@@ -56,6 +66,7 @@ class CameraNode(Node):
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self.cap.set(cv2.CAP_PROP_FPS, 15)
         try:
+            # 缓冲=1：宁可丢旧帧，避免延迟堆积
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         except Exception:
             pass
@@ -71,6 +82,7 @@ class CameraNode(Node):
         self.get_logger().info('摄像头节点已启动（15 fps，降低 USB/ROS 带宽）')
 
     def publish_image(self):
+        """定时读一帧并发布；失败则静默跳过本拍。"""
         if not self.cap.isOpened():
             return
         ret, frame = self.cap.read()
@@ -87,6 +99,7 @@ class CameraNode(Node):
         self.out.output(frame)
 
     def destroy_node(self):
+        """关闭弹窗并释放 VideoCapture，避免占用 /dev/video*。"""
         self.out.close()
         if self.cap is not None:
             self.cap.release()
@@ -94,6 +107,7 @@ class CameraNode(Node):
 
 
 def main(args=None):
+    """解析 CLI，spin 至用户按 q/Esc 或 Ctrl+C。"""
     parser = argparse.ArgumentParser(description='USB 摄像头 ROS2 发布节点')
     parser.add_argument('--device', default='/dev/video0')
     # 被 04/05/07 launch 拉起时只发话题；03 的 run.sh 显式传 --show

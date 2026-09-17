@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# 当前终端立即进入 zettatree_demo 开发环境。
+# 当前终端立即进入 zettatree_demo 开发环境（需 source，不可直接 bash 执行后指望变量留存）。
+# 顺序：TROS/ROS2 setup → 选择可用 RMW → ROS 日志目录 → 可选 mavros_ws overlay → 自检 ros2。
 set +u
 if [ -f /opt/tros/humble/setup.bash ]; then
+  # 优先 TogetheROS（RDK 板端）
   source /opt/tros/humble/setup.bash
 elif [ -f /opt/ros/humble/setup.bash ]; then
   source /opt/ros/humble/setup.bash

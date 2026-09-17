@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# 统一加载板端 ROS2 / TogetheROS 环境
+# 统一加载板端 ROS2 / TogetheROS 环境（优先 TROS humble，其次原生 ROS2 humble）。
 # TROS setup.bash 会访问未定义变量；若调用方开了 set -u，先临时关闭。
+# 同时：固定 ROS_LOG_DIR、无 vs-drm 时软件 OpenGL、自动选择可用 RMW。
 _ament_nounset=0
 case "$-" in *u*) _ament_nounset=1; set +u ;; esac
 if [ -f /opt/tros/humble/setup.bash ]; then
@@ -21,7 +22,7 @@ unset _ament_nounset
 export ROS_LOG_DIR="${ROS_LOG_DIR:-/tmp/zettatree_roslog}"
 mkdir -p "$ROS_LOG_DIR" 2>/dev/null || true
 
-# 无 vs-drm 时使用软件 OpenGL
+# 有显示且无 vs-drm 时使用软件 OpenGL
 if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
   if [ ! -e /usr/lib/aarch64-linux-gnu/dri/vs-drm_dri.so ] \
     && [ ! -e /usr/lib/dri/vs-drm_dri.so ]; then

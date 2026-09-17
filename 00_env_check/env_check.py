@@ -27,14 +27,14 @@ from pathlib import Path
 
 PIP_INDEX_URL_CN = "https://pypi.tuna.tsinghua.edu.cn/simple"
 
-# ---- Mainland China PyPI mirror ----
+# 国内 PyPI 镜像，供本脚本及子进程 pip 使用
 os.environ.setdefault("PIP_INDEX_URL", PIP_INDEX_URL_CN)
 os.environ.setdefault("PIP_TRUSTED_HOST", "pypi.tuna.tsinghua.edu.cn")
 os.environ.setdefault("PIP_DEFAULT_TIMEOUT", "60")
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]  # zettatree_demo 根目录
 SETUPS = [Path('/opt/tros/humble/setup.bash'), Path('/opt/ros/humble/setup.bash')]
-CHECKS: list[tuple[bool, str, str, str]] = []
+CHECKS: list[tuple[bool, str, str, str]] = []  # (ok, 名称, 详情, 类别)
 
 # 标准软件包：不存在就安装。
 APT_PACKAGES = [
@@ -73,6 +73,7 @@ VENDOR_PATTERNS = {
 }
 
 IMPORTS = {
+    # Python 模块名 → apt 包名（或 pip:包名）
     'numpy': 'python3-numpy', 'cv2': 'python3-opencv', 'PIL': 'python3-pil',
     'serial': 'python3-serial', 'paramiko': 'python3-paramiko',
     'pymavlink': 'pip:pymavlink', 'smbus': 'python3-smbus', 'smbus2': 'python3-smbus2',
@@ -81,20 +82,24 @@ IMPORTS = {
 
 
 def record(ok: bool, name: str, detail: str = '', kind: str = 'software') -> None:
+    """记录一项检查结果并立即打印。kind: software / vendor / hardware。"""
     CHECKS.append((ok, name, detail, kind))
     tag = '[ OK ]' if ok else '[FAIL]'
     print(f'{tag} {name}' + (f'  {detail}' if detail else ''))
 
 
 def run(cmd, *, env=None, timeout=120, capture=True):
+    """执行外部命令；默认捕获 stdout/stderr，返回 CompletedProcess。"""
     return subprocess.run(cmd, text=True, capture_output=capture, env=env, timeout=timeout)
 
 
 def has_cmd(name: str) -> bool:
+    """PATH 中是否存在可执行文件。"""
     return shutil.which(name) is not None
 
 
 def import_ok(mod: str):
+    """尝试 import 模块；成功返回 (True, 版本号)，失败返回 (False, 错误信息)。"""
     try:
         m = importlib.import_module(mod)
         return True, getattr(m, '__version__', '')
@@ -103,16 +108,14 @@ def import_ok(mod: str):
 
 
 def active_setup():
-    # TROS 优先；标准 ROS 作为后备。
+    """返回当前可用的 ROS/TROS setup.bash；TROS 优先，标准 ROS 后备。"""
     for p in SETUPS:
         if p.exists():
             return p
     return None
 
 
-
-# Debian ROS package -> ROS package name mapping.  Keep this explicit:
-# Debian package names use '-' while ROS package names frequently use '_'.
+# Debian 包名 → ROS 包名显式映射（deb 用 '-'，ROS 常用 '_'）
 ROS_DEBIAN_TO_ROS = {
     "ros-humble-ros-base": "ros_base",
     "ros-humble-rclpy": "rclpy",
@@ -130,6 +133,7 @@ ROS_DEBIAN_TO_ROS = {
 
 
 def _apt_installed(pkg: str) -> bool:
+    """dpkg 查询该 deb 是否已 install ok installed。"""
     try:
         r = subprocess.run(
             ["dpkg-query", "-W", "-f=${Status}", pkg],
@@ -141,6 +145,7 @@ def _apt_installed(pkg: str) -> bool:
 
 
 def _ros_name_for_deb(pkg: str) -> str:
+    """将 Debian/TROS 包名粗略转为 ros2 pkg 名。"""
     if pkg in ROS_DEBIAN_TO_ROS:
         return ROS_DEBIAN_TO_ROS[pkg]
     name = pkg
@@ -171,11 +176,12 @@ def ros_pkg_exists(pkg_or_ros_name: str, setup=None) -> bool:
 
 
 def source_and_raw(bash_cmd: str, setup=None, *, timeout=120):
+    """在 bash 中 source ROS setup 后执行原始 shell 字符串命令。"""
     setup = setup or active_setup()
     if not setup:
         return subprocess.CompletedProcess(bash_cmd, 1, "", "ROS setup not found")
     env = os.environ.copy()
-    env.pop("RMW_IMPLEMENTATION", None)
+    env.pop("RMW_IMPLEMENTATION", None)  # 避免坏 RMW 污染探测
     env["ROS_LOG_DIR"] = env.get("ROS_LOG_DIR", "/tmp/zettatree_roslog")
     return run(
         ["bash", "-lc", f'source "{setup}" >/dev/null 2>&1 && {bash_cmd}'],
@@ -183,6 +189,7 @@ def source_and_raw(bash_cmd: str, setup=None, *, timeout=120):
 
 
 def source_and(cmd, setup=None, *, timeout=120):
+    """在 source ROS 后执行参数列表命令（自动做 shell 引号转义）。"""
     setup = setup or active_setup()
     if not setup:
         return subprocess.CompletedProcess(cmd, 1, '', 'ROS setup not found')
@@ -191,6 +198,7 @@ def source_and(cmd, setup=None, *, timeout=120):
 
 
 def apt_available(pkg: str) -> bool:
+    """当前 apt 源是否能解析到该包（apt-cache show）。"""
     if not has_cmd('apt-cache'):
         return False
     p = run(['apt-cache', 'show', pkg], timeout=20)
@@ -198,6 +206,7 @@ def apt_available(pkg: str) -> bool:
 
 
 def apt_install(packages, yes: bool, reason='依赖') -> bool:
+    """安装 apt 包列表；yes=False 时交互确认。成功返回 True。"""
     packages = list(dict.fromkeys(p for p in packages if p))
     if not packages:
         return True
@@ -224,11 +233,13 @@ def apt_install(packages, yes: bool, reason='依赖') -> bool:
 
 
 def pip_supports_break_system_packages() -> bool:
+    """当前 pip 是否支持 --break-system-packages（PEP 668）。"""
     p = run([sys.executable, "-m", "pip", "install", "-h"], timeout=20)
     return "--break-system-packages" in ((p.stdout or "") + (p.stderr or ""))
 
 
 def pip_install_python(pkg: str, yes: bool) -> bool:
+    """用当前解释器 pip 安装 Python 包；root 时按需加 break-system-packages。"""
     print(f"[INSTALL] Python pip: {pkg}")
     if not yes:
         ans = input(f"现在通过 pip 安装 {pkg}？[Y/n] ").strip().lower()
@@ -254,6 +265,7 @@ def pip_install_python(pkg: str, yes: bool) -> bool:
 
 
 def ensure_standard_apt(yes: bool):
+    """确保 APT_PACKAGES / IMPORTS 对应依赖已装；缺失则 apt 或 pip。"""
     # apt-cache show 对已安装/可用包均有结果；dpkg-query 判断真正缺失。
     to_install = []
     unavailable = []
@@ -290,6 +302,7 @@ def ensure_standard_apt(yes: bool):
 
 
 def rmw_library_present(rmw: str) -> bool:
+    """在常见路径或 ldconfig 缓存中查找 lib{rmw}.so。"""
     lib = f'lib{rmw}.so'
     for base in ('/opt/tros/humble', '/opt/ros/humble', '/usr/lib', '/usr/local/lib'):
         for p in Path(base).rglob(lib) if Path(base).exists() else []:
@@ -299,24 +312,25 @@ def rmw_library_present(rmw: str) -> bool:
 
 
 def choose_rmw(setup):
-    # Never let a stale/broken RMW env prevent `ros2 --version` itself from running.
+    """挑选本机真实存在的 RMW；无库则返回空串，交给 ROS 默认实现。"""
+    # 不让陈旧/损坏的 RMW 环境变量挡住 ros2 本身运行
     candidates = ['rmw_cyclonedds_cpp', 'rmw_fastrtps_cpp']
     for rmw in candidates:
         if rmw_library_present(rmw):
             return rmw
-    # If no library can be found, let ROS use its compiled/default implementation.
     return ''
 
 
 def ros_env(setup):
+    """构造探测用环境：清掉 RMW，固定 ROS_LOG_DIR，避免 ~/.bashrc 干扰。"""
     env = os.environ.copy()
     env.pop('RMW_IMPLEMENTATION', None)
-    # Keep the setup isolated from a broken ~/.bashrc RMW override.
     env['ROS_LOG_DIR'] = env.get('ROS_LOG_DIR', '/tmp/zettatree_roslog')
     return env
 
 
 def ensure_ros(yes: bool):
+    """确保 ROS2/TROS 可用：setup、RMW、关键 ROS 包、必要时 MAVROS。"""
     setup = active_setup()
     if not setup:
         ros_candidates = [p for p in ROS_PACKAGES if apt_available(p)]
@@ -340,7 +354,7 @@ def ensure_ros(yes: bool):
         return None
     record(True, 'ros2 命令', 'CLI 可用')
 
-    # Ensure at least one RMW can really load.
+    # 尽量保证至少有一个 RMW 能真正加载
     for rmw_pkg in ('ros-humble-rmw-cyclonedds-cpp', 'ros-humble-rmw-fastrtps-cpp'):
         if not (rmw_library_present('rmw_cyclonedds_cpp') if 'cyclone' in rmw_pkg
                 else rmw_library_present('rmw_fastrtps_cpp')):
@@ -364,11 +378,8 @@ def ensure_ros(yes: bool):
                '没有可实际加载的 rmw_cyclonedds_cpp / rmw_fastrtps_cpp',
                'software')
 
-    # TROS images may provide part of ROS, while Ubuntu apt sources may not make
-    # apt-cache show the complete ROS package index. For every missing package:
-    # 1) try apt-cache;
-    # 2) if it is not indexed, still try apt-get install once so the user gets
-    #    the real repository error instead of a false "not installable" result.
+    # TROS 镜像可能已带部分 ROS，而 Ubuntu apt 索引未必完整。
+    # 对缺失包：先看 apt-cache；索引没有也尝试 apt-get，以拿到真实源错误。
     missing = []
     for pkg in ROS_PACKAGES:
         if not ros_pkg_exists(pkg, setup) and not _apt_installed(pkg):
@@ -405,7 +416,7 @@ def ensure_ros(yes: bool):
                "或 bash 00_env_check/setup_mavros.sh",
                "software")
 
-    # Refresh setup lookup after apt / mavros install.
+    # apt / mavros 安装后重新解析 setup
     setup = active_setup() or setup
     for pkg in ROS_PACKAGES:
         ok = ros_pkg_exists(pkg, setup) or _apt_installed(pkg)
@@ -497,6 +508,7 @@ def ensure_vendor(setup, yes: bool):
 
 
 def ensure_ego(yes: bool, skip_ego: bool):
+    """准备 09/10 共用的 C++ EGO-Planner 工作空间（可 --skip-ego 跳过）。"""
     if skip_ego:
         record(True, 'EGO-Planner', '用户指定 --skip-ego，09/10 的完整 C++ EGO 暂不安装', 'software')
         return True
@@ -567,6 +579,7 @@ def persist_shell_env(setup):
 
 
 def ensure_groups(yes: bool):
+    """把当前用户加入 dialout/i2c 组（串口与 I2C 权限，需重新登录生效）。"""
     if os.geteuid() == 0:
         return
     user = os.environ.get('USER') or os.environ.get('LOGNAME')
@@ -596,6 +609,7 @@ def ensure_groups(yes: bool):
 
 
 def check_devices():
+    """检查飞控串口、I2C 与摄像头设备节点是否存在及可读写。"""
     for path, label in [('/dev/ttyS2','PX4 UART2 /dev/ttyS2'),('/dev/i2c-5','I2C5 /dev/i2c-5')]:
         if os.path.exists(path):
             access = os.access(path, os.R_OK | os.W_OK)
@@ -607,6 +621,7 @@ def check_devices():
 
 
 def check_model():
+    """检查 YOLOv8 BPU 模型与 COCO 类别文件；缺失时可生成本地标签表。"""
     candidates=[
         Path('/opt/hobot/model/x5/basic/yolov8_640x640_nv12.bin'),
         Path('/opt/hobot/model/x5/basic/yolov8n_detect.bin'),
@@ -624,6 +639,7 @@ def check_model():
 
 
 def verify_ros_imports(setup):
+    """在 source 后用一行 python 校验 rclpy/cv_bridge/mavros_msgs 等导入。"""
     code='''import rclpy; import cv_bridge; import sensor_msgs.msg; import geometry_msgs.msg; import nav_msgs.msg; import tf2_ros; import mavros_msgs.msg; import mavros_msgs.srv; print("ROS imports OK")'''
     p=source_and(['python3','-c',code],setup,timeout=30)
     record(p.returncode==0,'ROS2 Python imports',(p.stdout or p.stderr).strip()[:400])
@@ -657,6 +673,7 @@ def verify_launches(setup):
 
 
 def verify_commands(setup):
+    """检查 rviz2/colcon/git 命令与 mavros/mipi_cam/stereonet 包是否可见。"""
     checks=[('rviz2','RViz2'),('colcon','colcon'),('git','git')]
     all_ok=True
     for cmd,label in checks:
@@ -671,6 +688,7 @@ def verify_commands(setup):
 
 
 def main():
+    """命令行入口：体检/修复环境，汇总 READY 或 BLOCKED。"""
     ap=argparse.ArgumentParser()
     ap.add_argument('--yes',action='store_true',help='无需询问，自动安装/编译')
     ap.add_argument('--check-only',action='store_true',help='只检查，不修改环境')
@@ -725,5 +743,3 @@ def main():
 
 if __name__=='__main__':
     raise SystemExit(main())
-
-# Mainland China PyPI mirror for all pip subprocesses

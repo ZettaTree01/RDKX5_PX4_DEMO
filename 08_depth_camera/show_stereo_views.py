@@ -30,6 +30,7 @@ from depth_rgbd import (  # noqa: E402
 
 
 def _label(img, text):
+    """在画面左上角叠加英文标签。"""
     out = img.copy()
     cv2.putText(out, text, (10, 28), cv2.FONT_HERSHEY_SIMPLEX,
                 0.8, (0, 255, 255), 2, cv2.LINE_AA)
@@ -37,7 +38,10 @@ def _label(img, text):
 
 
 class StereoViewsNode(Node):
+    """订阅拼接图/官方左右目与 Stereonet 深彩/深度，分窗显示。"""
+
     def __init__(self, layout='tb', show_depth=True, show_visual=True):
+        """layout=tb 表示上下拼接（左目在上）；可选关闭深度/深彩窗。"""
         super().__init__('stereo_views')
         self.bridge = CvBridge()
         self.layout = layout
@@ -78,6 +82,7 @@ class StereoViewsNode(Node):
             + '  （q/Esc 退出）')
 
     def _on_combine(self, msg: Image):
+        """MIPI 拼接图回调：拆成左右目。"""
         try:
             bgr = image_msg_to_bgr(msg, self.bridge)
             left, right = split_stereo_combine(bgr, self.layout)
@@ -88,6 +93,7 @@ class StereoViewsNode(Node):
                                    throttle_duration_sec=2.0)
 
     def _on_side(self, msg: Image, which: str):
+        """官方 origin_left/right 单目回调（优先于拼接拆分）。"""
         try:
             bgr = image_msg_to_bgr(msg, self.bridge)
             if which == 'left':
@@ -98,6 +104,7 @@ class StereoViewsNode(Node):
             pass
 
     def _on_visual(self, msg: Image):
+        """Stereonet 深彩可视化回调。"""
         try:
             self.visual = image_msg_to_bgr(msg, self.bridge)
         except Exception as exc:
@@ -105,6 +112,7 @@ class StereoViewsNode(Node):
                                    throttle_duration_sec=2.0)
 
     def _on_depth(self, msg: Image):
+        """Stereonet 深度图回调：转米制并伪彩。"""
         try:
             arr = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
             depth = depth_msg_to_meters(np.asarray(arr), msg.encoding)
@@ -114,6 +122,7 @@ class StereoViewsNode(Node):
                                    throttle_duration_sec=2.0)
 
     def _tick(self):
+        """定时刷新分窗；有 DISPLAY 用 imshow，否则写 /tmp 快照。"""
         now = time.monotonic()
         if now - self._last_t < 0.03:
             return
@@ -153,6 +162,7 @@ class StereoViewsNode(Node):
 
 
 def main():
+    """解析参数并 spin 分窗显示节点。"""
     parser = argparse.ArgumentParser(description='GS130W 左右目分窗显示')
     parser.add_argument('--layout', default='tb', choices=['tb', 'lr'],
                         help='combine 拼接：tb=上下(左上) lr=左右(左左)')

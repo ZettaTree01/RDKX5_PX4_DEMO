@@ -32,7 +32,10 @@ Z_LOCK_FRAMES = 50
 
 
 class PoseToOdom(Node):
+    """MAVROS 位姿 → Odometry + TF；可选 z 对齐供 EGO grid_map。"""
+
     def __init__(self):
+        """声明话题/坐标系参数；无位姿时定时发 identity。"""
         super().__init__('pose_to_odom')
         self.declare_parameter('pose_topic', '/mavros/local_position/pose')
         self.declare_parameter('odom_topic', '/odom_world')
@@ -63,6 +66,7 @@ class PoseToOdom(Node):
             f'{pose_topic} → {odom_topic} + TF（无位姿时发 identity）')
 
     def _publish(self, stamp, position, orientation, twist=None):
+        """发布 Odometry，并广播 base_link（及可选 camera_link）TF。"""
         odom = Odometry()
         odom.header.stamp = stamp
         odom.header.frame_id = self.frame_id
@@ -94,6 +98,7 @@ class PoseToOdom(Node):
             self.tf_br.sendTransform(cam)
 
     def _fallback_tick(self):
+        """尚无真实位姿时发布原点 identity，保证 RViz/grid_map 可用。"""
         if self._have_pose:
             return
         stamp = self.get_clock().now().to_msg()
@@ -102,6 +107,7 @@ class PoseToOdom(Node):
         self._publish(stamp, (0.0, 0.0, 0.0), q)
 
     def _cb(self, msg: PoseStamped):
+        """位姿回调：差分估速，可选锁定 z0 后发对齐高度。"""
         self._have_pose = True
         p = msg.pose.position
         twist = None
@@ -143,6 +149,7 @@ class PoseToOdom(Node):
 
 
 def main():
+    """启动 pose_to_odom 桥接节点。"""
     rclpy.init()
     node = PoseToOdom()
     try:

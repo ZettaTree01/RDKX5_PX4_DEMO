@@ -26,6 +26,7 @@ FORCE = 21196.0  # PX4 强制解锁/上锁用的魔法数
 
 
 def _log(quiet: bool, msg: str) -> None:
+    """非 quiet 时打印一行并立即 flush。"""
     if not quiet:
         print(msg, flush=True)
 
@@ -118,6 +119,7 @@ def disarm(port: str, baud: int, quiet: bool = False, retries: int = 8) -> bool:
 
 
 def main() -> int:
+    """CLI 入口：解析串口参数，调用 ``disarm``，成功返回 0。"""
     ap = argparse.ArgumentParser(description='例程退出紧急上锁')
     ap.add_argument('--port', default=DEFAULT_PORT,
                     help='飞控串口，默认 40PIN UART2 /dev/ttyS2')

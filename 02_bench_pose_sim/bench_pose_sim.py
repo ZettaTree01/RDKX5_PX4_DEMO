@@ -37,6 +37,7 @@ class BenchPoseSim(Node):
     """
 
     def __init__(self, max_speed=BENCH_FOLLOW_MPS, rate=50.0):
+        """订阅设定点/本地点，定时发布 vision_pose。"""
         super().__init__('bench_pose_sim')
         self.max_speed = max_speed
         self.dt = 1.0 / rate
@@ -46,6 +47,7 @@ class BenchPoseSim(Node):
         self.vel = None
         self.vel_time = None
         self._snapped_local = False
+        # 回灌外部视觉位姿给飞控 EKF
         self.pub = self.create_publisher(
             PoseStamped, '/mavros/vision_pose/pose', 10)
         self.create_subscription(
@@ -85,6 +87,7 @@ class BenchPoseSim(Node):
         self._snapped_local = True
 
     def _on_setpoint(self, msg):
+        """位置设定点更新：记录目标与姿态，偏差过大时瞬移对齐。"""
         p = msg.pose.position
         self.target = [p.x, p.y, p.z]
         q = msg.pose.orientation
@@ -92,11 +95,13 @@ class BenchPoseSim(Node):
         self._snap_to(self.target, '设定点偏离过远')
 
     def _on_velocity(self, msg):
+        """速度设定点：记录线速度与时间戳，供积分分支使用。"""
         self.vel = (
             msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z)
         self.vel_time = self.get_clock().now()
 
     def _velocity_fresh(self):
+        """速度设定点是否在 200ms 内仍然有效。"""
         if self.vel is None or self.vel_time is None:
             return False
         return (self.get_clock().now() - self.vel_time).nanoseconds < 200_000_000
@@ -104,10 +109,12 @@ class BenchPoseSim(Node):
     def _tick(self):
         """发布 /mavros/vision_pose/pose，供 EKF 外部视觉融合。"""
         if self._velocity_fresh():
+            # 有新鲜速度设定点：积分位移
             for i in range(3):
                 self.pos[i] += self.vel[i] * self.dt
             self.target = list(self.pos)
         else:
+            # 否则一阶跟随位置设定点，步长受 max_speed 限制
             step = self.max_speed * self.dt
             for i in range(3):
                 delta = self.target[i] - self.pos[i]
@@ -127,6 +134,7 @@ class BenchPoseSim(Node):
 
 
 def main(args=None):
+    """解析限速/频率参数并 spin 台架位姿模拟节点。"""
     parser = argparse.ArgumentParser(
         description='台架位姿模拟器（拆桨、室内无位置源）')
     parser.add_argument(

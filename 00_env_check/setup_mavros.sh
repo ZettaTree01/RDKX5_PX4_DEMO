@@ -11,6 +11,7 @@
 set -eo pipefail
 
 _source_setup() {
+  # 临时关闭 nounset，避免 ament/TROS setup 读未定义变量报错
   # shellcheck disable=SC1090,SC1091
   set +u
   source "$1"
@@ -32,6 +33,7 @@ fi
 _source_setup "$ROS_SETUP"
 
 _have_mavros() {
+  # ros2 能否解析到 mavros 包前缀
   ros2 pkg prefix mavros >/dev/null 2>&1
 }
 

@@ -20,6 +20,17 @@ import numpy as np
 
 @dataclass
 class EgoAvoidConfig:
+    """反应式避障参数（深度滤波 + 碰撞阈值 + 速度上限）。
+
+    Attributes:
+        depth_min / depth_max: 有效深度范围（米），对齐 Ego grid_map 量级。
+        skip_pixel: ROI 降采样步长。
+        margin: 图像边缘裁剪像素。
+        safe_distance: 进入减速/修正的前方距离。
+        stop_distance: 急停/绕行阈值。
+        max_vel: 机体速度幅值上限（室内台架很小）。
+        enable_vertical / vertical_gain: 是否启用上下避让及增益。
+    """
     # 对齐 Ego-Planner grid_map 深度滤波量级
     depth_min: float = 0.2
     depth_max: float = 5.0
@@ -47,6 +58,7 @@ class SectorClearance:
     down: float | None = None
 
     def as_dict(self) -> dict:
+        """中文扇区名 → 距离，便于 HUD / 日志打印。"""
         return {
             '前': self.front,
             '左前': self.front_left,
@@ -60,6 +72,10 @@ class SectorClearance:
 
 def _roi_clearance(depth_m: np.ndarray, x0, x1, y0, y1,
                    dmin: float, dmax: float, skip: int) -> float | None:
+    """在归一化 ROI [x0,x1)×[y0,y1) 内取有效深度的 20% 分位（偏保守最近障碍）。
+
+    有效像素过少时返回 None。
+    """
     h, w = depth_m.shape[:2]
     xa, xb = int(w * x0), int(w * x1)
     ya, yb = int(h * y0), int(h * y1)
@@ -99,6 +115,7 @@ def measure_clearance(depth_m: np.ndarray, cfg: EgoAvoidConfig) -> SectorClearan
 
 
 def _finite(v: float | None, fallback: float) -> float:
+    """把 None / 非有限值替换为 ``fallback``。"""
     return float(v) if v is not None and math.isfinite(v) else fallback
 
 

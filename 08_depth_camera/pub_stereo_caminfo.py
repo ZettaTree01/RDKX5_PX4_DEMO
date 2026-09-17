@@ -14,6 +14,7 @@ from sensor_msgs.msg import CameraInfo
 
 
 def _make_info(width, height, fx, fy, cx, cy, frame_id, baseline=0.0, is_right=False):
+    """构造左右目 CameraInfo；右目 P[0,3]=+fx*B 供 Stereonet 取基线。"""
     msg = CameraInfo()
     msg.width = int(width)
     msg.height = int(height)
@@ -35,8 +36,11 @@ def _make_info(width, height, fx, fy, cx, cy, frame_id, baseline=0.0, is_right=F
 
 
 class StereoCamInfoNode(Node):
+    """按固定频率 RELIABLE 发布左右目 CameraInfo。"""
+
     def __init__(self, width, height, fx, fy, cx, cy, baseline,
                  left_topic, right_topic, rate_hz):
+        """内参与基线默认对齐 GS130W + Stereonet 640x352 输入。"""
         super().__init__('stereo_caminfo_pub')
         # Stereonet 需要 RELIABLE
         qos = QoSProfile(
@@ -57,6 +61,7 @@ class StereoCamInfoNode(Node):
             f'baseline={baseline:.3f}m left={left_topic} right={right_topic}')
 
     def _tick(self):
+        """刷新时间戳并发布左右 CameraInfo。"""
         stamp = self.get_clock().now().to_msg()
         self._left.header.stamp = stamp
         self._right.header.stamp = stamp
@@ -65,6 +70,7 @@ class StereoCamInfoNode(Node):
 
 
 def main():
+    """解析内参参数并 spin CameraInfo 发布节点。"""
     parser = argparse.ArgumentParser()
     # 默认对齐 Stereonet 模型输入 640x352（避免二次缩放）
     parser.add_argument('--width', type=int, default=640)
