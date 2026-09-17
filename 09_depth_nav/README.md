@@ -82,16 +82,14 @@ bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 | Display | Topic |
 |---------|-------|
 | Depth Color | `/StereoNetNode/stereonet_visual` |
-| stereonet_pointcloud2 | `/StereoNetNode/stereonet_pointcloud2`（RGB8，与例程8相同） |
-| cloud_world | `/drone/ego/cloud_world`（变换到 world 的建模点云） |
-| GridMapInflate | `/grid_map/occupancy_inflate`（EGO 占据，半透明） |
-| OccViz | `/drone/ego/occ_viz` |
-| OptimalBspline / AStarList | `/optimal_list`、`/a_star_list`（规划路线） |
+| stereonet_pointcloud2 | `/StereoNetNode/stereonet_pointcloud2`（RGB8，与例程8相同，Fixed Frame=`camera_link`） |
+| GridMapInflate | `/grid_map/occupancy_inflate`（半透明点，不挡彩色点云） |
+| OptimalBspline / AStarList | `/optimal_list`、`/a_star_list`（规划路线，frame=`world`） |
 | OptimalBspline | `/optimal_list` |
 | AStarList | `/a_star_list` |
 | PathHistory | `/drone/nav/path_history` |
 
-Fixed Frame = **`world`**（`pose_to_odom` 同时发 `world → camera_link`，官方点云与例程 8 同源）。省 CPU 时 `rviz:=false`。
+Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 TF 即可显示；规划 Marker 在 `world`，由 `pose_to_odom` 提供 `world→camera_link`）。省 CPU 时 `rviz:=false`。
 
 ## 参数
 

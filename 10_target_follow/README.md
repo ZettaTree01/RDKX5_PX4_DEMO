@@ -39,7 +39,7 @@ YOLO 行人框 → 深度取 3D → 计算 standoff 跟随点
         ↓
  /move_base_simple/goal  →  EGO（避障 B 样条）→ traj_server → OFFBOARD
 OpenCV：检测画面（行人框）| 三维俯视（N=初始机头）| 底部中文状态栏
-RViz：例程8同款官方彩色点云 + world 点云 + 膨胀占据 + 规划 Marker + 目标/跟随点
+RViz：例程8同款（Fixed Frame=`camera_link` + 官方彩色点云）+ 规划 Marker + 目标/跟随点
 ```
 
 | 层级 | 内容 |
