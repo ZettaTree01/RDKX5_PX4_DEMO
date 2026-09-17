@@ -142,7 +142,7 @@ def generate_launch_description():
         mavros,
         manager,
         camera_node,
-        task,
+        TimerAction(period=2.0, actions=[task]),
         # 台架位姿 5 Hz，给 57600 UART 留出参数拉取带宽。
         TimerAction(period=1.0, actions=[simulator]),
     ])

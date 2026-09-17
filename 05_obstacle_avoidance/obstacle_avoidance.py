@@ -10,7 +10,8 @@
   1) 小孔成像：fx × 类别典型高度 / 框高；
   2) 画面占比：框高占画面 50% 时视为约 0.8 m（补偿 USB 广角估远）。
 反向速度与距离成比例：刚进入安全区约 20% 最大速度，贴脸时到 100%。
-画面始终显示当前高度；触发避障时显示位移方向（前/后/左/右/上升/下降）。
+画面只画检测框与避障箭头；高度/阶段/距离集中在底部中文状态栏。
+室内暗场先 CLAHE 再推理，避免 MIPI 欠曝导致「无目标」。
 
 推理与图像回调解耦：回调只缓存最新帧，定时器按 infer-hz 推理。
 
@@ -73,6 +74,26 @@ REAL_WIDTHS = {
     'potted plant': 0.30, 'dog': 0.25, 'cat': 0.20, 'backpack': 0.30,
 }
 DEFAULT_WIDTH = 0.40
+_BANNER_H = 96
+_DARK_MEAN = 55.0
+
+
+def _enhance_indoor(bgr):
+    """室内暗场：CLAHE + 适度增益，便于 YOLO 与目视。足够亮则原样返回。"""
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    mean = float(gray.mean())
+    if mean >= _DARK_MEAN:
+        return bgr, mean
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+    l_ch, a_ch, b_ch = cv2.split(lab)
+    clip = 2.5 if mean > 25.0 else 4.0
+    l_ch = cv2.createCLAHE(clipLimit=clip, tileGridSize=(8, 8)).apply(l_ch)
+    out = cv2.cvtColor(cv2.merge((l_ch, a_ch, b_ch)), cv2.COLOR_LAB2BGR)
+    mean2 = float(cv2.cvtColor(out, cv2.COLOR_BGR2GRAY).mean())
+    if mean2 < 70.0:
+        gain = min(4.0, 90.0 / max(mean2, 1.0))
+        out = cv2.convertScaleAbs(out, alpha=gain, beta=8)
+    return out, mean
 
 
 def _move_dirs(vx, vy, vz, max_vel):
@@ -145,6 +166,7 @@ class ObstacleAvoidanceNode(Node):
         self._rel_alt = RelAlt()
         self.bridge = CvBridge()
         self._last_status = 0.0
+        self._luma = None
 
         self.detector = YoloDetector(
             score_thres=score_thres, nms_thres=nms_thres,
@@ -174,6 +196,7 @@ class ObstacleAvoidanceNode(Node):
 
         infer_hz = max(1.0, float(infer_hz))
         self.create_timer(1.0 / infer_hz, self._infer_tick)
+        self.create_timer(0.2, self._preview)
         self.create_timer(0.05, self._tick)
         self.get_logger().info(
             f'避障任务已启动，等待 /camera/image_raw '
@@ -210,10 +233,38 @@ class ObstacleAvoidanceNode(Node):
             -speed * float(np.sin(yaw)),
             speed * float(np.sin(pitch)))
 
+    def _phase_txt(self):
+        if self.airborne:
+            return '悬停'
+        if self.armed:
+            return '起飞中'
+        return '等待解锁'
+
+    def _preview(self):
+        if not self.out.enabled() or self.latest_frame is not None:
+            return
+        self.out.output(self._waiting_panel())
+
+    def _waiting_panel(self):
+        vis = np.full((360, 640, 3), 36, np.uint8)
+        put_cn_lines(vis, [
+            ('等待相机画面…', (230, 230, 230)),
+            ('GS130W MIPI → /camera/image_raw', (180, 180, 185)),
+            ('或 camera_source:=usb', (180, 180, 185)),
+        ], origin=(24, 48), size=22)
+        yolo = 'OK' if self.detector.loaded else '未加载'
+        return self._with_banner(vis, [
+            (f'阶段：{self._phase_txt()}    位移：—', (235, 235, 235)),
+            (f'高度 -- m    障碍 -- m    检测 --    YOLO {yolo}',
+             (205, 205, 210)),
+            ('等待相机画面', (0, 0, 255)),
+        ])
+
     def _infer_tick(self):
         frame = self.latest_frame
         if frame is None:
             return
+        frame, self._luma = _enhance_indoor(frame)
 
         if not self.detector.loaded:
             self.cmd = (0.0, 0.0, 0.0)
@@ -247,14 +298,9 @@ class ObstacleAvoidanceNode(Node):
         vx, vy, vz = self.cmd
         dirs = '、'.join(_move_dirs(vx, vy, vz, self.max_vel)) or '—'
         alt = '--' if self.alt_z is None else f'{self.alt_z:.2f}'
-        if self.airborne:
-            phase = '悬停'
-        elif self.armed:
-            phase = '起飞中'
-        else:
-            phase = '等待解锁'
         self._status(
-            f'{phase} alt={alt}m n={len(detections)} nearest={distance:.2f}m '
+            f'{self._phase_txt()} alt={alt}m n={len(detections)} '
+            f'nearest={distance:.2f}m '
             f'cmd=({vx:+.3f},{vy:+.3f},{vz:+.3f}) {dirs}')
 
     def nearest_obstacle(self, detections, frame_w, frame_h):
@@ -284,6 +330,18 @@ class ObstacleAvoidanceNode(Node):
                 best = (float(distance), yaw, pitch, i)
         return best
 
+    def _with_banner(self, vis, lines):
+        vis = np.ascontiguousarray(vis)
+        h, w = vis.shape[:2]
+        banner = np.zeros((_BANNER_H, w, 3), np.uint8)
+        banner[:] = (28, 30, 36)
+        cv2.line(banner, (0, 0), (w - 1, 0), (70, 72, 80), 1, cv2.LINE_AA)
+        panel = np.vstack([vis, banner])
+        ys = (h + 8, h + 36, h + 64)
+        cn = [(text, color, (14, ys[i])) for i, (text, color) in enumerate(lines)]
+        put_cn_lines(panel, cn, size=20)
+        return panel
+
     def _output(self, frame, detections, distance, idx, _yaw, note):
         if not self.out.enabled():
             return
@@ -300,44 +358,39 @@ class ObstacleAvoidanceNode(Node):
             cv2.putText(vis, text, (int(x1), max(12, int(y1) - 6)),
                         FONT, 0.55, color, 2)
 
-        h, w = vis.shape[:2]
-        bar_h = 64
-        overlay = vis.copy()
-        cv2.rectangle(overlay, (0, 0), (w, bar_h), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.55, vis, 0.45, 0, vis)
-        vis = np.ascontiguousarray(vis)
-
-        alt_txt = ('高度 --' if self.alt_z is None
-                   else f'高度 {self.alt_z:.2f} m')
-        lines = [(alt_txt, (0, 255, 255))]
         avoiding = (distance is not None and distance < self.safe_distance)
         vx, vy, vz = self.cmd
-        if not self.airborne:
-            phase = '起飞中' if self.armed else '等待解锁'
-            lines.append((phase, (0, 255, 255)))
-        elif avoiding:
-            dirs = _move_dirs(vx, vy, vz, self.max_vel)
-            move_txt = '位移 ' + ('、'.join(dirs) if dirs else '悬停')
-            lines.append((f'{move_txt}  障碍 {distance:.1f} m', (0, 0, 255)))
+        if avoiding:
             _draw_move_arrows(vis, vx, vy, vz, self.max_vel)
-            cx, cy = w - 78, h // 2 + 10
-            tag = (0, 220, 255)
-            lines.extend([
-                ('升', tag, (cx - 10, cy - 64)),
-                ('降', tag, (cx - 10, cy + 46)),
-                ('左', tag, (cx - 64, cy - 12)),
-                ('右', tag, (cx + 46, cy - 12)),
-            ])
-            if vx < -0.12 * self.max_vel:
-                lines.append(('后', (0, 0, 255), (w // 2 - 12, h - 28)))
-            elif vx > 0.12 * self.max_vel:
-                lines.append(('前', (0, 255, 0), (w // 2 - 12, h - 28)))
+
+        alt = '--' if self.alt_z is None else f'{self.alt_z:.2f}'
+        obs = '--' if distance is None else f'{distance:.1f}'
+        yolo = 'OK' if self.detector.loaded else '未加载'
+        if avoiding:
+            dirs = _move_dirs(vx, vy, vz, self.max_vel)
+            move = '、'.join(dirs) if dirs else '悬停'
+            note3 = f'避障中  障碍 {distance:.1f} m'
+            c3 = (0, 0, 255)
         elif note:
-            lines.append((note, (0, 0, 255)))
+            move = '—'
+            note3 = note
+            c3 = (0, 0, 255)
         elif distance is not None:
-            lines.append((f'安全 {distance:.1f} m', (0, 255, 0)))
-        put_cn_lines(vis, lines, origin=(10, 6), size=22)
-        self.out.output(vis)
+            move = '—'
+            note3 = f'安全 {distance:.1f} m'
+            c3 = (80, 220, 80)
+        else:
+            move = '—'
+            note3 = '—'
+            c3 = (205, 205, 210)
+        if self._luma is not None and self._luma < _DARK_MEAN:
+            note3 = f'{note3}    画面偏暗已增强'
+        self.out.output(self._with_banner(vis, [
+            (f'阶段：{self._phase_txt()}    位移：{move}', (235, 235, 235)),
+            (f'高度 {alt} m    障碍 {obs} m    检测 {len(detections)}    '
+             f'YOLO {yolo}', (205, 205, 210)),
+            (f'速度 ({vx:+.2f},{vy:+.2f},{vz:+.2f}) m/s    {note3}', c3),
+        ]))
 
     def _status(self, text):
         now = self.get_clock().now().nanoseconds / 1e9
