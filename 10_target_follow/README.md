@@ -35,7 +35,7 @@ bash /app/zettatree_demo/08_depth_camera/run.sh
 技术栈对齐 [Fast-Planner](https://github.com/SnapDragonfly/Fast-Planner) / [EGO-Planner](https://github.com/ZJU-FAST-Lab/ego-planner)：
 
 ```
-YOLO 行人框（`/StereoNetNode/rectified_image`）→ 深度取 3D → 计算 standoff 跟随点
+YOLO 行人框（`/StereoNetNode/rectified_image`）→ 深度取 3D → 沿机头方向退 standoff 得跟随点
         ↓
  /move_base_simple/goal  →  EGO（避障 B 样条）→ traj_server → OFFBOARD
 OpenCV：检测画面（行人框）| 三维俯视（N=初始机头）| 底部中文状态栏
@@ -82,7 +82,7 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 | `start_stereo` | `true` | 是否拉起例程 8 的 Stereonet |
 | `arm` | `false` | `true` 才解锁（必须拆桨） |
 | `bench` | `true` | 台架模式（起飞斜坡不看气压计） |
-| `standoff` | `0.8` | 跟随保持距离（米） |
+| `standoff` | `0.8` | 沿机头方向与行人保持的水平距离（米）；人偏右则右移以居中 |
 | `follow_z` | `0.1` | 跟随高度（米） |
 | `max_vel` | `0.02` | 跟随最大速度（m/s，室内拆桨慢速） |
 | `safe_distance` | `1.2` | 安全层急停距离（米） |

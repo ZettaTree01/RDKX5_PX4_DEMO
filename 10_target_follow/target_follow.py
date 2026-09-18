@@ -485,18 +485,15 @@ class TargetFollowNode(Node):
         return fresh
 
     def _compute_follow_goal(self):
-        """按 standoff 距离计算跟随点（机→人方向回退）。"""
+        """跟随点：沿当前机头方向退 standoff，使人落在相机正前方。
+
+        相机固定朝前，台架也不改航向。若沿「机–人连线」回退，人会一直停在
+        画面一侧。改为与行人同侧平移、机头方向保持距离，偏右则右移、偏左则左移。
+        """
         if self.target_w is None or self.pose is None:
             return None
         tx, ty, tz = self.target_w
-        dx = tx - self.pose[0]
-        dy = ty - self.pose[1]
-        dist = math.hypot(dx, dy)
-        if dist < 1e-3:
-            ux, uy = math.cos(self.yaw), math.sin(self.yaw)
-        else:
-            ux, uy = dx / dist, dy / dist
-        # 停在行人与飞机连线上、距行人 standoff 处（Fast-Planner 式跟飞点）
+        ux, uy = math.cos(self.yaw), math.sin(self.yaw)
         gx = tx - ux * self.standoff
         gy = ty - uy * self.standoff
         # 跟随点转到 EGO 世界系（减 origin），与 /odom_world 同系

@@ -1345,7 +1345,7 @@ bash /app/zettatree_demo/<例程>/run.sh arm:=true
 
 ### 任务说明
 
-起飞稳定后，以当前位置为原点飞行 0.05 m × 0.05 m 方形航线（室内为实飞 1 m 的 1/20），到点拍照，完成后请求 `AUTO.LAND`。飞行过程中持续输出巡航画面（叠加航点进度）。与例程 3–5/7 相同，使用**普通 USB 摄像头**（默认 `/dev/video0`），不用 GS130W / MIPI。
+起飞稳定后，沿起飞机头飞行 0.05 m × 0.05 m 方形航线（先向前、再向左；室内为实飞 1 m 的 1/20），到点拍照，完成后请求 `AUTO.LAND`。飞行过程中持续输出巡航画面（叠加航点进度）。与例程 3–5/7 相同，使用**普通 USB 摄像头**（默认 `/dev/video0`），不用 GS130W / MIPI。
 
 > **本节目标**（`06_autonomous_cruise`）：
 > - 完成「巡航 → 到点拍照 → 降落」的完整任务编排；
@@ -1762,7 +1762,7 @@ RViz图
 > **本节目标**（`10_target_follow`）：
 >
 > - 用深度把行人从像素落到 world 系三维点；
-> - 按 standoff 生成跟随点并限频更新 goal，避免 EGO 过频重规划；
+> - 按当前机头方向退 standoff 生成跟随点（人偏在画面一侧则侧移居中），并限频更新 goal，避免 EGO 过频重规划；
 > - 理解 MANUAL_TARGET（`/move_base_simple/goal`）与例程 9 航点模式的差异；
 > - 过近时深度安全层可速度覆盖。
 
@@ -1813,7 +1813,7 @@ bash /app/zettatree_demo/10_target_follow/run.sh arm:=true \
 ```
 rectified_image(NV12) ─ YOLO person(BPU 10 Hz) ┐
 stereonet_depth ─ 框内中位深度 ─────────────┴→ 行人 world 系 3D
-                                                    │ 减 standoff（沿连线）
+                                                    │ 沿机头退 standoff（人偏右则右移居中）
                                                     ▼
               /move_base_simple/goal(约 2 Hz) → ego_planner（动态重规划）
                                                     │ /position_cmd(100 Hz)

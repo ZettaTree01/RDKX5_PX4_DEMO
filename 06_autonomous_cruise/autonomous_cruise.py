@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """自主巡航拍摄。文档 4.1。
 
-起飞后以当前位置为原点飞行方形航点，到点拍照，完成后请求降落。
+起飞后以当前位置为原点、沿机头先向前再向左飞方形航点，到点拍照，完成后请求降落。
 位置目标仅发给 OFFBOARD 管理器；禁止在回调外使用 while + sleep，以免阻塞 spin。
 
 室内 launch 默认启用台架；须指定 ``arm:=true`` 才会强制解锁，航点边长为实飞的 1/20。
 ``--show`` 默认开启；无显示器时回退为周期性快照。
 """
 import argparse
+import math
 import os
 import sys
 import time
@@ -24,7 +25,7 @@ import cv2
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..', '_common'))
 from frame_output import FrameOutput
-from indoor import CRUISE_SIDE_M, RelAlt
+from indoor import CRUISE_SIDE_M, RelAlt, square_along_heading
 from cn_hud import put_cn_lines
 from depth_rgbd import image_msg_to_bgr
 from yolo_detector import YoloDetector
@@ -90,7 +91,8 @@ class AutonomousCruiseNode(Node):
             fallback_path='/tmp/cruise_snapshot.jpg')
 
         self.current_position = None
-        self.waypoints = None  # 起飞后以当前位置为原点规划方形
+        self.current_yaw = 0.0
+        self.waypoints = None  # 起飞后沿机头规划方形（先向前再向左）
 
         self.get_logger().info(
             f'自主巡航已启动（相机=/camera/image_raw，'
@@ -103,6 +105,10 @@ class AutonomousCruiseNode(Node):
     def position_callback(self, msg):
         """缓存局部位姿，并尝试在首次空中时规划航点。"""
         self.current_position = msg.pose.position
+        q = msg.pose.orientation
+        self.current_yaw = math.atan2(
+            2.0 * (q.w * q.z + q.x * q.y),
+            1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         self.alt_z = self._rel_alt.update(msg.pose.position.z)
         self._maybe_plan()
 
@@ -116,13 +122,11 @@ class AutonomousCruiseNode(Node):
             self.current_position.x,
             self.current_position.y,
             self.current_position.z)
-        # 方形四角 + 回到起点；边长取自室内缩放后的 CRUISE_SIDE_M
-        self.waypoints = [
-            (x, y, z), (x + CRUISE_SIDE_M, y, z),
-            (x + CRUISE_SIDE_M, y + CRUISE_SIDE_M, z),
-            (x, y + CRUISE_SIDE_M, z), (x, y, z)]
+        # 沿起飞机头：先向前、再向左（闭合回起点）
+        self.waypoints = square_along_heading(
+            x, y, z, self.current_yaw, CRUISE_SIDE_M, include_start=True)
         self.get_logger().info(
-            f'已规划巡航方形边长 {CRUISE_SIDE_M:.3f} m')
+            f'已规划巡航方形边长 {CRUISE_SIDE_M:.3f} m（沿机头向前再向左）')
 
     def _publish_sp(self, x, y, z):
         """向 OFFBOARD 管理器发布局部位姿设定点。"""

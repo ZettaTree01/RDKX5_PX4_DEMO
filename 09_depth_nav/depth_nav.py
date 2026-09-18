@@ -40,7 +40,7 @@ from depth_rgbd import (
     render_modeling_panel, simulate_depth_room)
 from ego_depth_avoid import EgoAvoidConfig, compute_body_velocity
 from frame_output import FrameOutput
-from indoor import CRUISE_SIDE_M, NAV_VEL_MPS, RelAlt
+from indoor import CRUISE_SIDE_M, NAV_VEL_MPS, RelAlt, square_along_heading
 from cn_hud import put_cn_lines
 
 # Stereonet 图像用传感器 QoS，避免 RELIABLE 反压把 BPU 推理队列打满
@@ -505,15 +505,10 @@ class DepthNavNode(Node):
         self.path_pub.publish(path)
 
     def _build_waypoints(self):
-        """以当前位置为原点规划方形巡航航点。"""
+        """以当前位置为原点、沿机头向前再向左规划方形航点。"""
         x0, y0, z0 = self.home
-        s = self.side
-        self.waypoints = [
-            (x0 + s, y0, z0),
-            (x0 + s, y0 + s, z0),
-            (x0, y0 + s, z0),
-            (x0, y0, z0),
-        ]
+        self.waypoints = square_along_heading(
+            x0, y0, z0, self.yaw, self.side, include_start=False)
         plan = Path()
         plan.header.stamp = self.get_clock().now().to_msg()
         plan.header.frame_id = 'world'

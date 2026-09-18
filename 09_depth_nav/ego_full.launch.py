@@ -187,6 +187,7 @@ def generate_launch_description():
             'fsm/realworld_experiment': True,
             'fsm/fail_safe': True,
             'fsm/waypoint_num': 4,
+            # EGO 世界系：+x 前、+y 左（台架航向固定时即机头向前再向左）
             'fsm/waypoint0_x': 0.05,
             'fsm/waypoint0_y': 0.0,
             'fsm/waypoint0_z': 0.1,

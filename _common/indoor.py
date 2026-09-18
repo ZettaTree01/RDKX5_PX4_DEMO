@@ -15,6 +15,7 @@
 恢复实飞标称：将 ``INDOOR_SPEED_SCALE`` 改为 ``1.0``，或在 launch 中显式传入
 ``altitude:=2 max_vel:=0.5`` 等参数（任务节点可覆盖部分限速）。
 """
+import math
 
 # 总比例：0.05 = 实飞的 1/20。改 1.0 即全量实飞标称。
 INDOOR_SPEED_SCALE = 0.05
@@ -62,6 +63,28 @@ ACC_DOWN = ACC_UP
 JERK_AUTO = max(0.05, ACC_HOR * 2.0)
 LAND_SPEED = Z_VEL_MAX
 BENCH_CLIMB_MPS = ACC_UP * 0.5
+
+
+def square_along_heading(x, y, z, yaw, side, include_start=False):
+    """沿当前机头规划方形：先向前，再向左。
+
+    机体 FLU：+x 前、+y 左。台架上第一边对应机头下俯（后电机加快），
+    第二边对应左飞（右电机加快）。与例程 10「沿机头退 standoff」同一约定。
+    """
+    x, y, z = float(x), float(y), float(z)
+    side = float(side)
+    c, s = math.cos(float(yaw)), math.sin(float(yaw))
+    fx, fy = c * side, s * side
+    lx, ly = -s * side, c * side
+    corners = [
+        (x + fx, y + fy, z),
+        (x + fx + lx, y + fy + ly, z),
+        (x + lx, y + ly, z),
+        (x, y, z),
+    ]
+    if include_start:
+        return [(x, y, z)] + corners
+    return corners
 
 
 class RelAlt:
