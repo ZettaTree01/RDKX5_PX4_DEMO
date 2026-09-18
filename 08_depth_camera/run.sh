@@ -2,7 +2,7 @@
 # 例程8 统一入口（GS130W Stereonet）
 #
 #   bash run.sh                         # 默认：MIPI + Stereonet + OpenCV + RViz
-#   bash run.sh rviz:=false             # 省 CPU，不要 RViz
+#   bash run.sh rviz:=false             # 仅调试需要时才关 RViz
 #   bash run.sh views                   # 分窗左右目 / 深彩 / 深度
 #   bash run.sh views --no-depth --no-visual
 #   bash run.sh views start_stereo:=0   # 只要左右目，不拉 Stereonet
@@ -101,7 +101,7 @@ _setup_gl() {
 
 _warn_display() {
   if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
-    echo "[08] 警告: 未设置 DISPLAY。板端桌面终端可弹窗；否则 OpenCV/RViz 可能不可用。"
+    echo "[08] 未设置 DISPLAY：OpenCV 可能无窗；RViz 会自动挂到本机桌面 :0。"
   fi
 }
 
@@ -158,14 +158,6 @@ run_rviz_only() {
   CFG="${SCRIPT_DIR}/depth_cloud.rviz"
   if [ ! -f "$CFG" ]; then
     echo "[08] missing $CFG" >&2
-    exit 1
-  fi
-  if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
-    echo "[08] 无 DISPLAY：请在板端桌面终端运行，或在同网 PC："
-    echo "  export ROS_DOMAIN_ID=\${ROS_DOMAIN_ID:-0}"
-    echo "  source /opt/tros/humble/setup.bash   # 板端 TROS"
-    echo "  rviz2 -d $CFG"
-    echo "  # Fixed Frame=camera_link  Topic=/StereoNetNode/stereonet_pointcloud2"
     exit 1
   fi
   echo "[08] 模式=rviz：Fixed Frame=camera_link"

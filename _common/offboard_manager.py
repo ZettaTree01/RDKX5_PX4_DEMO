@@ -30,12 +30,24 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import (
+    HistoryPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+    qos_profile_sensor_data,
+)
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State, StatusText
-from mavros_msgs.srv import CommandBool, CommandLong, SetMode
-from rcl_interfaces.msg import ParameterType, ParameterValue
+from mavros_msgs.srv import CommandBool, CommandHome, CommandLong, SetMode
+from rcl_interfaces.msg import Log, Parameter, ParameterType, ParameterValue
+from rcl_interfaces.srv import SetParameters
 from std_msgs.msg import Bool
+
+try:
+    from geographic_msgs.msg import GeoPointStamped
+except ImportError:
+    GeoPointStamped = None
+
 
 # 板端 MAVROS 2.x 的 /mavros/param/set 实际是 ParamSetV2；旧板回退 ParamSet。
 try:
@@ -64,8 +76,11 @@ _PX4_EVENT_NAMES = {
     3061044: 'Accel inconsistent between IMUs',
     3087815: 'No offboard signal',
     3613628: 'High Accelerometer Bias',
+    5444856: 'Arming check (unknown detail; see QGC)',
     6801787: 'No GCS datalink',
     7662152: 'USB connected',
+    9697819: 'Arming check (unknown detail; see QGC)',
+    9634798: 'Heading estimate not stable',
     10011251: 'No valid global position estimate',
     10716939: 'Onboard control regained',
     11047904: 'arming check summary',
@@ -90,6 +105,14 @@ try:
     from mavros_msgs.msg import ESCStatus
 except ImportError:
     ESCStatus = None
+try:
+    from mavros_msgs.msg import OverrideRCIn
+except ImportError:
+    OverrideRCIn = None
+try:
+    from mavros_msgs.msg import HomePosition
+except ImportError:
+    HomePosition = None
 
 
 class OffboardManager(Node):
@@ -104,7 +127,11 @@ class OffboardManager(Node):
         # 飞控与本地点
         self.state = State()
         self.pose = None                # (x,y,z, qx,qy,qz,qw) 本地 ENU
-        self.home = None                # 开机/重定原点时的位置
+        self.home = None                # 开机/重定原点时的位置（本节点）
+        self._px4_home_requested = False  # 已向飞控发过 DO_SET_HOME
+        self._px4_home_ok = False         # 已收到 /mavros/home_position/home
+        self._origin_requested = False
+        self._home_cmd_t0 = None
         self.hold_target = None         # 无任务时锁定的目标点
         self.hold_orientation = None
 
@@ -136,6 +163,9 @@ class OffboardManager(Node):
         self._param_queue = []
         self._param_sent_name = None
         self._param_sent_time = None
+
+        # 最近飞控拒解锁相关 STATUSTEXT / EVENT（用于错误提示，勿写死 IMU）
+        self._recent_fcu_fails = []
 
         self._logged_ignore_vel = False
         self._logged_hover = False
@@ -175,15 +205,43 @@ class OffboardManager(Node):
         if ManualControl is not None:
             self.manual_pub = self.create_publisher(
                 ManualControl, '/mavros/manual_control/send', 10)
+        self.rc_override_pub = None
+        if OverrideRCIn is not None:
+            self.rc_override_pub = self.create_publisher(
+                OverrideRCIn, '/mavros/rc/override', 10)
+        self.home_set_pub = None
+        if HomePosition is not None:
+            self.home_set_pub = self.create_publisher(
+                HomePosition, '/mavros/home_position/set', 10)
+            self.create_subscription(
+                HomePosition, '/mavros/home_position/home',
+                self._on_home_position, 10)
         self.airborne_pub = self.create_publisher(
             Bool, '/drone/status/airborne', 10)
         self.arm_cli = self.create_client(CommandBool, '/mavros/cmd/arming')
         self.cmd_cli = self.create_client(CommandLong, '/mavros/cmd/command')
+        self.home_cli = self.create_client(CommandHome, '/mavros/cmd/set_home')
         self.mode_cli = self.create_client(SetMode, '/mavros/set_mode')
         self.param_cli = self.create_client(ParamSetSrv, '/mavros/param/set')
+        self.gp_origin_pub = None
+        if GeoPointStamped is not None:
+            self.gp_origin_pub = self.create_publisher(
+                GeoPointStamped, '/mavros/global_position/set_gp_origin', 10)
+            self.create_subscription(
+                GeoPointStamped, '/mavros/global_position/gp_origin',
+                self._on_gp_origin, 10)
+        self._gp_origin_ok = False
         self.create_subscription(
             StatusText, '/mavros/statustext/recv', self._on_statustext,
-            qos_profile_sensor_data)
+            # mavros 用 RELIABLE；SensorDataQoS 是 BEST_EFFORT，会完全收不到
+            QoSProfile(depth=20, reliability=ReliabilityPolicy.RELIABLE,
+                       history=HistoryPolicy.KEEP_LAST),
+        )
+        # EVENT 常只打到 mavros.sys 的 /rosout，不进 StatusText
+        self.create_subscription(Log, '/rosout', self._on_rosout, 50)
+        self._mavros_set_param_cli = self.create_client(
+            SetParameters, '/mavros/set_parameters')
+        self._thrust_scaling_fixed = False
         if ESCTelemetry is not None:
             self.create_subscription(
                 ESCTelemetry, '/mavros/esc_telemetry', self._on_esc, 10)
@@ -252,6 +310,68 @@ class OffboardManager(Node):
             self._logged_land_done = False
             self.get_logger().warn('收到降落请求，开始降落并准备上锁停转')
 
+    def _note_fcu_fail(self, reason):
+        """记录最近拒解锁相关 FCU 原文，供强制解锁失败时打印。"""
+        if not reason:
+            return
+        if reason in self._recent_fcu_fails:
+            return
+        self._recent_fcu_fails.append(reason)
+        if len(self._recent_fcu_fails) > 8:
+            self._recent_fcu_fails = self._recent_fcu_fails[-8:]
+
+    def _on_rosout(self, msg):
+        """从 mavros /rosout 抓 FCU EVENT（多数固件不发到 StatusText）。"""
+        name = (msg.name or '')
+        text = (msg.msg or '').strip()
+        if not text or 'mavros' not in name:
+            return
+        if 'EVENT' not in text.upper() and 'FCU:' not in text:
+            return
+        # 去掉前缀「FCU: 」
+        if text.upper().startswith('FCU:'):
+            text = text[4:].strip()
+        decoded = self._decode_fcu_event(text)
+        if decoded:
+            self._note_fcu_fail(decoded)
+            self.get_logger().warn(f'FCU: {decoded}')
+        elif 'EVENT' in text.upper():
+            self._note_fcu_fail(text)
+            self.get_logger().warn(f'FCU: {text}')
+
+    def _fix_mavros_thrust_scaling(self):
+        """yaml 里 thrust_scaling=1.0 仍可能未生效 → ignore_thrust；运行时强制写入。"""
+        if self._thrust_scaling_fixed:
+            return
+        if not self._mavros_set_param_cli.service_is_ready():
+            return
+        # 只尝试一次，避免刷屏；失败则改用速度设定点预热
+        self._thrust_scaling_fixed = True
+        req = SetParameters.Request()
+        p = Parameter()
+        p.name = 'setpoint_raw.thrust_scaling'
+        p.value = ParameterValue(
+            type=ParameterType.PARAMETER_DOUBLE, double_value=1.0)
+        req.parameters = [p]
+        fut = self._mavros_set_param_cli.call_async(req)
+
+        def _done(f):
+            try:
+                res = f.result()
+                ok = all(r.successful for r in res.results)
+                if ok:
+                    self.get_logger().info(
+                        '已设置 mavros setpoint_raw.thrust_scaling=1.0')
+                else:
+                    self.get_logger().warn(
+                        'thrust_scaling 无法运行时写入（将用速度设定点预热）: '
+                        + '; '.join(
+                            r.reason for r in res.results if not r.successful))
+            except Exception as exc:
+                self.get_logger().warn(f'设置 thrust_scaling 异常: {exc}')
+
+        fut.add_done_callback(_done)
+
     def _on_statustext(self, msg):
         """过滤飞控 STATUSTEXT；EVENT 数字尽量译成可读拒解锁原因。"""
         text = (msg.text or '').strip()
@@ -259,6 +379,7 @@ class OffboardManager(Node):
             return
         decoded = self._decode_fcu_event(text)
         if decoded:
+            self._note_fcu_fail(decoded)
             self.get_logger().warn(f'FCU: {decoded}')
             return
         key = text.lower()
@@ -267,6 +388,7 @@ class OffboardManager(Node):
                 'safety', 'switch', 'failsafe', 'denied', 'health',
                 'check', 'rc ', 'radio', 'kill', 'usb', 'event',
                 'bias', 'accel', 'compass', 'mag')):
+            self._note_fcu_fail(text)
             self.get_logger().warn(f'FCU: {text}')
         elif text:
             self.get_logger().info(f'FCU: {text}', throttle_duration_sec=3.0)
@@ -389,17 +511,131 @@ class OffboardManager(Node):
         return msg
 
     def _publish_rc_keepalive(self):
-        """注入中位摇杆，满足「有遥控输入」预检（不依赖真实遥控器）。"""
-        if self.manual_pub is None:
+        """注入中位摇杆，满足「有遥控输入」预检（不依赖真实遥控器）。
+
+        mavros send_cb 把 float 原样写入 MANUAL_CONTROL（单位约 -1000..1000），
+        不会再乘 1000；z=500 为油门中位。另发 RC override 作双保险。
+        """
+        if self.manual_pub is not None:
+            msg = ManualControl()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.x = 0.0
+            msg.y = 0.0
+            msg.z = 500.0
+            msg.r = 0.0
+            msg.buttons = 0
+            self.manual_pub.publish(msg)
+        if self.rc_override_pub is not None:
+            ov = OverrideRCIn()
+            ch = [1500] * 8 + [OverrideRCIn.CHAN_RELEASE] * 10
+            ov.channels = ch
+            self.rc_override_pub.publish(ov)
+
+    def _on_gp_origin(self, msg):
+        if not self._gp_origin_ok:
+            self.get_logger().info('EKF gp_origin 已确认')
+        self._gp_origin_ok = True
+
+    def _on_home_position(self, msg):
+        """飞控确认 home 已设置。"""
+        if not self._px4_home_ok:
+            self.get_logger().info('飞控 home 已确认 (/mavros/home_position/home)')
+        self._px4_home_ok = True
+
+    def _ensure_px4_home(self):
+        """设 EKF 全局原点 + home，消 79408 / 无 global position。"""
+        if self.pose is None:
             return
-        msg = ManualControl()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.x = 0.0
-        msg.y = 0.0
-        msg.z = 0.0  # 油门最低
-        msg.r = 0.0
-        msg.buttons = 0
-        self.manual_pub.publish(msg)
+        now = self.get_clock().now()
+        # 1) 经 mavros 话题设 GPS 原点（比 COMMAND_LONG 48 更稳）
+        if self.gp_origin_pub is not None and not self._gp_origin_ok:
+            gp = GeoPointStamped()
+            gp.header.stamp = now.to_msg()
+            gp.header.frame_id = 'map'
+            gp.position.latitude = 47.397742
+            gp.position.longitude = 8.545594
+            gp.position.altitude = 488.0
+            self.gp_origin_pub.publish(gp)
+        # 2) COMMAND_LONG 备份
+        if not self._origin_requested and self.cmd_cli.service_is_ready():
+            req = CommandLong.Request()
+            req.broadcast = False
+            req.command = 48
+            req.confirmation = 0
+            req.param5 = 47.397742
+            req.param6 = 8.545594
+            req.param7 = 488.0
+            self._origin_requested = True
+            self.cmd_cli.call_async(req)
+            self.get_logger().info('已请求 SET_GPS_GLOBAL_ORIGIN（室内假原点）')
+        if self.home_set_pub is not None:
+            hp = HomePosition()
+            hp.header.stamp = now.to_msg()
+            hp.header.frame_id = 'map'
+            hp.position.x = float(self.pose[0])
+            hp.position.y = float(self.pose[1])
+            hp.position.z = float(self.pose[2])
+            hp.orientation.w = 1.0
+            hp.geo.latitude = 47.397742
+            hp.geo.longitude = 8.545594
+            hp.geo.altitude = 488.0
+            self.home_set_pub.publish(hp)
+        if self._px4_home_ok:
+            return
+        if (self._home_cmd_t0 is not None
+                and (now - self._home_cmd_t0).nanoseconds < 2_000_000_000):
+            return
+        self._home_cmd_t0 = now
+        # 优先 /mavros/cmd/set_home
+        if self.home_cli.service_is_ready():
+            req = CommandHome.Request()
+            req.current_gps = False
+            req.yaw = 0.0
+            req.latitude = 47.397742
+            req.longitude = 8.545594
+            req.altitude = 488.0
+            fut = self.home_cli.call_async(req)
+
+            def _done(f):
+                try:
+                    r = f.result()
+                    if r.success:
+                        self._px4_home_ok = True
+                        self.get_logger().info('cmd/set_home 成功')
+                    else:
+                        self.get_logger().warn(
+                            f'cmd/set_home 被拒 result={r.result}',
+                            throttle_duration_sec=5.0)
+                except Exception as exc:
+                    self.get_logger().warn(f'cmd/set_home 异常: {exc}')
+
+            fut.add_done_callback(_done)
+            return
+        if self.cmd_cli.service_is_ready():
+            req = CommandLong.Request()
+            req.broadcast = False
+            req.command = 179
+            req.confirmation = 0
+            req.param1 = 0.0
+            req.param5 = 47.397742
+            req.param6 = 8.545594
+            req.param7 = 488.0
+            self._px4_home_requested = True
+            fut = self.cmd_cli.call_async(req)
+            fut.add_done_callback(self._home_result)
+
+    def _home_result(self, future):
+        try:
+            res = future.result()
+            if res.success:
+                self._px4_home_ok = True
+                self.get_logger().info('DO_SET_HOME 成功')
+            else:
+                self.get_logger().warn(
+                    f'DO_SET_HOME 被拒 result={res.result}',
+                    throttle_duration_sec=5.0)
+        except Exception as exc:
+            self.get_logger().warn(f'DO_SET_HOME 调用失败: {exc}')
 
     def _task_is_fresh(self):
         """任务输入是否在 0.5 s 内更新过；过期则改悬停。"""
@@ -623,11 +859,11 @@ class OffboardManager(Node):
             if res.success:
                 self.get_logger().warn('已强制解锁，电机将按室内油门慢转')
             else:
+                hints = '；'.join(self._recent_fcu_fails[-4:]) or '尚无 FCU 明细'
                 self.get_logger().error(
                     f'PX4 拒绝强制解锁 result={res.result} '
                     f'（1=预检未过：机载端 21196 仍会跑健康检查）。'
-                    f'看本节点 FCU: 行。室内重点：IMU Accel/Gyro inconsistent '
-                    f'（勿把 COM_ARM_IMU_* 写成 0）；请确认已按安全开关，拆桨后重试')
+                    f'近期 FCU：{hints}。请确认已按安全开关，拆桨后重试')
         except Exception as exc:
             self.get_logger().error(f'强制解锁服务调用失败: {exc}')
 
@@ -651,12 +887,17 @@ class OffboardManager(Node):
         CBRK_IO_SAFETY 运行时写入后仍须按安全开关（或保存参数后重启飞控）。
         """
         arm_params = [
+            # 最先写：MAVLink 摇杆（假遥控）；新固件 1=MAVLink only；勿用 4
+            ('COM_RC_IN_MODE', 1),
             ('COM_ARM_WO_GPS', 1),
             ('CBRK_IO_SAFETY', 22027),
             ('COM_PREARM_MODE', 2),
             ('COM_RCL_EXCEPT', 4),
+            # 台架常见拒解锁：无任务 / 无 GCS / 多 IMU 投票；尽量关掉硬依赖
+            ('COM_ARM_MIS_REQ', 0),
             ('NAV_DLL_ACT', 0),
-            ('SYS_HAS_GPS', 0),
+            ('COM_DLL_EXCEPT', 7),  # 忽略部分模式的数传丢失（含 offboard bit，视固件）
+            ('SYS_HAS_GPS', 1),  # 允许假原点/global home；仍靠 EKF2_EV 视觉
             ('SYS_HAS_MAG', 0),
             ('EKF2_MAG_TYPE', 5),
             ('EKF2_MAG_CHECK', 0),
@@ -666,11 +907,16 @@ class OffboardManager(Node):
             # 阈值越大越松；写成 0 会让任何 IMU 不一致都拒解锁（NavModes::All）
             ('COM_ARM_IMU_ACC', 1.0),
             ('COM_ARM_IMU_GYR', 0.3),
+            # 注意：不要把 CAL_ACC*_ID / CAL_GYRO*_ID 写成 0 来「屏蔽副 IMU」。
+            # 槽位清零后飞控认为该 IMU 未校准，健康检查直接把 accel 判 Fail，
+            # 整机进 ARMING_STATE_STANDBY_ERROR，连 21196 强制解锁也会被拒。
             ('EKF2_ABL_LIM', 2.0),
+            # 15=位置+速度+yaw：台架视觉发固定航向，避免 Heading 不稳
             ('EKF2_EV_CTRL', 15),
             ('EKF2_EV_DELAY', 5.0),
             ('EKF2_HGT_REF', 3),
             ('CBRK_USB_CHK', 197848),
+            ('COM_ARM_AUTH_REQ', 0),
             # 拆桨怠速达不到「已起飞」判定，默认 10s 会自动上锁；负数关闭起飞前超时。
             # 落地后仍要自动上锁停转：COM_DISARM_LAND 保持正数（秒）。
             ('COM_DISARM_PRFLT', -1.0),
@@ -728,6 +974,7 @@ class OffboardManager(Node):
             if not self._arm_params_ready:
                 self._arm_params_ready = True
                 self._arm_ready_since = self.get_clock().now()
+                self._recent_fcu_fails = []
                 self.get_logger().warn(
                     '解锁相关参数已处理完，等待 EKF 采用新偏置上限后再请求解锁')
 
@@ -841,12 +1088,13 @@ class OffboardManager(Node):
                 else:
                     self._offboard_ticks = 0
                 if not self.state.armed or not offboard:
+                    self._fix_mavros_thrust_scaling()
+                    self._ensure_px4_home()
                     self._publish_rc_keepalive()
-                    if self.attitude_pub is not None:
-                        self.attitude_pub.publish(self._attitude_sp(THR_MIN))
-                    else:
-                        self.velocity_pub.publish(
-                            self._velocity_sp((0.0, 0.0, 0.0)))
+                    # mavros setpoint_raw 在 thrust_scaling=NaN 时会丢弃非零 thrust，
+                    # 导致飞控报 No offboard signal。预热一律用速度设定点。
+                    self.velocity_pub.publish(
+                        self._velocity_sp((0.0, 0.0, 0.0)))
                 elif not self.airborne:
                     self.velocity_pub.publish(
                         self._velocity_sp(self._bench_takeoff_vel()))
@@ -931,9 +1179,9 @@ class OffboardManager(Node):
             return
         if (self.bench and self._arm_ready_since is not None
                 and (self.get_clock().now()
-                     - self._arm_ready_since).nanoseconds < 3_000_000_000):
+                     - self._arm_ready_since).nanoseconds < 10_000_000_000):
             self.get_logger().info(
-                '解锁参数已写入，等待 EKF 刷新偏航/加速度计偏置',
+                '解锁参数已写入，等待 EKF 刷新偏航/home/原点（约 10s）',
                 throttle_duration_sec=2.0)
             return
         # 台架：姿态设定点 + 假遥控 → OFFBOARD 稳定后再强制解锁。
@@ -941,11 +1189,12 @@ class OffboardManager(Node):
             if self.state.mode != 'OFFBOARD':
                 self._request_mode('OFFBOARD')
                 return
-            if self.bench and self._offboard_ticks < 20:
+            if self.bench and self._offboard_ticks < 40:
                 self.get_logger().info(
                     '已进入 OFFBOARD，等待设定点被飞控接受后再解锁',
                     throttle_duration_sec=2.0)
                 return
+            # home 未确认也继续尝试解锁（同时 _ensure_px4_home 每 2s 重试）
             self._request_arm()
             return
         if self.state.mode != 'OFFBOARD':

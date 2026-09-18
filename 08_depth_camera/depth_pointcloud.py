@@ -59,7 +59,7 @@ TOPIC_PRESETS = {
         'depth': '/StereoNetNode/stereonet_depth',
         'visual': '/StereoNetNode/stereonet_visual',
         'points': '/StereoNetNode/stereonet_pointcloud2',
-        'color': '/StereoNetNode/origin_left_image',
+        'color': '/StereoNetNode/rectified_image',
         'info': '/StereoNetNode/stereonet_depth/camera_info',
     },
 }

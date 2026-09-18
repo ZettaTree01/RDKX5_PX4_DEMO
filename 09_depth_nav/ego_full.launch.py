@@ -113,10 +113,7 @@ def generate_launch_description():
     stereonet = ExecuteProcess(
         cmd=[
             'bash', os.path.join(STEREO_DIR, 'start_stereonet.sh'),
-            # 例程9 同时跑 EGO+RViz+OpenCV：再抽稀一点，优先保深彩帧率
-            'pointcloud_downsample_step:=6',
             'render_perf:=True',
-            'publish_origin_enable:=False',
         ],
         output='screen',
         name='hobot_stereonet',
@@ -127,16 +124,19 @@ def generate_launch_description():
         ])),
     )
 
-    # 桥接：MAVROS 位姿 → /odom_world + TF
+    # 室内 MAVROS local 带气压高度和残留 XY，EGO 地图只有 ±4 m。
+    # z_align 把起飞位锁成 EGO 原点，cloud/poscmd 按同一基准换系。
     pose_odom = ExecuteProcess(
-        cmd=['python3', os.path.join(BRIDGES, 'pose_to_odom.py')],
+        cmd=['python3', os.path.join(BRIDGES, 'pose_to_odom.py'),
+             '--ros-args', '-p', 'z_align:=true'],
         output='screen',
         name='pose_to_odom',
         additional_env={'ROS_LOG_DIR': TMP_LOG_DIR},
     )
 
     cloud_world = ExecuteProcess(
-        cmd=['python3', os.path.join(BRIDGES, 'cloud_cam_to_world.py')],
+        cmd=['python3', os.path.join(BRIDGES, 'cloud_cam_to_world.py'),
+             '--ros-args', '-p', 'z_align:=true'],
         output='screen',
         name='cloud_cam_to_world',
         additional_env={'ROS_LOG_DIR': TMP_LOG_DIR},
@@ -150,13 +150,14 @@ def generate_launch_description():
     )
 
     poscmd_bridge = ExecuteProcess(
-        cmd=['python3', os.path.join(BRIDGES, 'poscmd_to_offboard.py')],
+        cmd=['python3', os.path.join(BRIDGES, 'poscmd_to_offboard.py'),
+             '--ros-args', '-p', 'z_align:=true'],
         output='screen',
         name='poscmd_to_offboard',
         additional_env={'ROS_LOG_DIR': TMP_LOG_DIR},
     )
 
-    # 室内小地图 + 低速；点云建图（关闭 depth filter）
+    # 室内小地图 + 低速；只用已滤波的 world 点云建图（原始深度近零点会标到机体上）
     ego_planner = Node(
         package='ego_planner',
         executable='ego_planner_node',
@@ -166,7 +167,6 @@ def generate_launch_description():
             ('odom_world', '/odom_world'),
             ('grid_map/odom', '/odom_world'),
             ('grid_map/cloud', '/drone/ego/cloud_world'),
-            ('grid_map/depth', '/StereoNetNode/stereonet_depth'),
             ('planning/bspline', '/planning/bspline'),
             ('planning/data_display', '/planning/data_display'),
             ('goal_point', '/goal_point'),
@@ -213,10 +213,10 @@ def generate_launch_description():
             'grid_map/cy': 176.0,
             'grid_map/fx': 328.379,
             'grid_map/fy': 328.379,
-            'grid_map/use_depth_filter': False,
+            'grid_map/use_depth_filter': True,
             'grid_map/depth_filter_tolerance': 0.15,
             'grid_map/depth_filter_maxdist': 5.0,
-            'grid_map/depth_filter_mindist': 0.2,
+            'grid_map/depth_filter_mindist': 0.35,
             'grid_map/depth_filter_margin': 2,
             'grid_map/k_depth_scaling_factor': 1000.0,
             'grid_map/skip_pixel': 3,
@@ -325,7 +325,7 @@ def generate_launch_description():
         DeclareLaunchArgument('show', default_value='true'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='默认 true：RViz 订官方 stereonet_pointcloud2 + OccViz；省 CPU 时 rviz:=false'),
+            description='默认 true：必须开 RViz（官方点云 + OccViz）。SSH 也会挂到本机桌面 :0'),
         DeclareLaunchArgument('max_vel', default_value=INDOOR_MAX_VEL),
         DeclareLaunchArgument('safe_distance', default_value='1.2'),
         DeclareLaunchArgument('stop_distance', default_value='0.45'),

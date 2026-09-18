@@ -4,7 +4,7 @@
 
 ROS2 例程用各目录 `run.sh`（会 `source` TogetheROS Humble）。视觉与深度默认走 **BPU 量化算力**（YOLO / Stereonet `.bin`）。例程 **3–7** 使用普通 USB 单目；深度链路（8/9/10）默认 GS130W MIPI。
 
-每个例程一个目录，自带 `run.sh` / launch / 配置；被多个例程复用的运行时组件统一放在 `_common/`。
+每个例程一个目录，自带 `run.sh` / launch / 配置；被多个例程复用的运行时组件统一放在 `_common/`。分步说明见同目录主教程 [`RDK_X5_AI_Tutorial.md`](RDK_X5_AI_Tutorial.md)。
 
 ## 获取与部署
 
@@ -46,7 +46,7 @@ bash run.sh --yes
 | 双目深度 / 点云 | `hobot_stereonet` 量化 Stereonet | 无 MIPI 双目则不可用 |
 | 停机坪 H | OpenCV 轮廓 + 模板（无官方量化模型） | — |
 
-例程 `01` / `02` / `11` 不含神经网络。例程 `08` 的 RViz 由 `run.sh` 在有 `DISPLAY` 时拉起，也可 `run.sh rviz` 单独打开。
+例程 `01` / `02` / `11` 不含神经网络。例程 **8 / 9 / 10 默认开启 RViz**（SSH 也会挂到本机桌面 `:0`）；例程 8 也可用 `run.sh rviz` 单独打开。
 
 ## 使用约定
 

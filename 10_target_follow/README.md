@@ -35,7 +35,7 @@ bash /app/zettatree_demo/08_depth_camera/run.sh
 技术栈对齐 [Fast-Planner](https://github.com/SnapDragonfly/Fast-Planner) / [EGO-Planner](https://github.com/ZJU-FAST-Lab/ego-planner)：
 
 ```
-YOLO 行人框 → 深度取 3D → 计算 standoff 跟随点
+YOLO 行人框（`/StereoNetNode/rectified_image`）→ 深度取 3D → 计算 standoff 跟随点
         ↓
  /move_base_simple/goal  →  EGO（避障 B 样条）→ traj_server → OFFBOARD
 OpenCV：检测画面（行人框）| 三维俯视（N=初始机头）| 底部中文状态栏
@@ -90,7 +90,7 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 | `min_score` | `0.25` | YOLO person 置信度阈值（与例程 04 同默认） |
 | `show` | `true` | OpenCV HUD 窗口；无 DISPLAY 自动改写快照 |
 | `snapshot` | 空 | 无显示器时的 JPEG 快照路径 |
-| `rviz` | `true` | RViz2（例程8点云建模 + 规划路线；`rviz:=false` 省 CPU） |
+| `rviz` | `true` | **必须开启** RViz（例程8点云 + 规划路线）。SSH 自动挂到本机桌面 `:0` |
 
 ## 话题说明
 
@@ -116,9 +116,10 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 | 现象 | 处理 |
 |------|------|
 | `ego_planner` 包不可用 | `bash setup.sh` |
-| 检测不到行人 | 距离 0.5–5 m、光照充足；可把 `min_score:=0.2` |
+| 检测不到行人 | 人站在镜头前 0.5–5 m、光照充足；确认订阅 `/StereoNetNode/rectified_image`（本机不发 `origin_left_image`）；可把 `min_score:=0.2` |
+| EGO 报 `the drone is in obstacle` / 无 `position_cmd` | 1) 机体前方约 1.5 m 内不要有椅子桌沿；2) 确认 `/odom_world` 在地图内（原点对齐后应接近 0,0,0）；3) 点云桥已滤 `min_depth=0.25` 与机体清空半径 |
 | 目标短暂丢失就停 | 正常：约 1 s 记忆，超时后悬停并继续搜索 |
-| HUD 无窗口 | 无 DISPLAY 时写快照 `/tmp/target_follow_snapshot.jpg`，或传 `snapshot:=` |
+| HUD 无窗口 | 无 DISPLAY 时 OpenCV 写快照 `/tmp/target_follow_snapshot.jpg`。RViz 仍会显示在本机 HDMI 桌面 |
 | RViz 只有橙点/无彩色点云 | Fixed Frame 应为 `camera_link`；GridMapInflate 默认已关，确认 stereonet_pointcloud2 已勾选后重跑 |
 | Ctrl+C 退不出 | 应立刻杀栈；仍挂住时另开终端：`bash /app/zettatree_demo/_common/stop_nav_stack.sh` |
 | 有点云无规划线 | 需检出到行人并下发 goal；确认 Displays 勾选 OptimalBspline / FollowLink |

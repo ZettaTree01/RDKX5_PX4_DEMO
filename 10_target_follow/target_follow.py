@@ -60,7 +60,8 @@ _QOS_STEREO = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=5)
 
-# pose_to_odom 锁定的 z 基准（latched）：EGO 世界系 z_ego = z_mavros - z0
+# pose_to_odom 锁定的原点（latched）：EGO 世界系 = MAVROS local - origin
+# 出界时 grid_map.getInflateOccupancy 返回 -1，C++ 当作障碍。
 _QOS_LATCHED = QoSProfile(
     depth=1,
     reliability=ReliabilityPolicy.RELIABLE,
@@ -69,6 +70,11 @@ _QOS_LATCHED = QoSProfile(
 GS_FX, GS_FY = 328.379, 328.379
 GS_CX, GS_CY = 320.0, 176.0
 PERSON_CLS = 0  # COCO person
+
+# 供 YOLO 用的左目单目画面。本机 TROS 的 hobot_stereonet 只发
+# ~/rectified_image（需 ros2 node info /StereoNetNode 核对），没有
+# origin_left_image；订错话题不会报错，只会一直收不到帧、检测不到人。
+LEFT_IMAGE_TOPIC = '/StereoNetNode/rectified_image'
 
 
 def _yaw_from_quat(q) -> float:
@@ -248,11 +254,13 @@ class TargetFollowNode(Node):
         self.path_pub = self.create_publisher(Path, '/drone/nav/path_history', 1)
         self.link_pub = self.create_publisher(Marker, '/drone/follow/link', 5)
 
-        # EGO z 对齐基准：室内 MAVROS local z 是气压绝对高度（几十米），
-        # EGO 地图 z 固定 [-0.5, 1.5]，需减 z0 回到地图内（桥已同基准变换）
+        # EGO 原点：室内 MAVROS local 带气压高度和残留 XY，地图只有 ±4 m
         self._z0 = None
+        self._origin = None
         self.create_subscription(
             Float64, '/drone/ego/z_ref', self._on_zref, _QOS_LATCHED)
+        self.create_subscription(
+            PoseStamped, '/drone/ego/origin_ref', self._on_origin, _QOS_LATCHED)
 
         self.create_subscription(
             Bool, '/drone/status/airborne',
@@ -273,7 +281,7 @@ class TargetFollowNode(Node):
                 Image, '/StereoNetNode/stereonet_visual',
                 self._on_visual, _QOS_STEREO)
             self.create_subscription(
-                Image, '/StereoNetNode/origin_left_image',
+                Image, LEFT_IMAGE_TOPIC,
                 self._on_color, _QOS_STEREO)
             self.create_subscription(
                 Image, '/StereoNetNode/stereonet_depth',
@@ -304,11 +312,21 @@ class TargetFollowNode(Node):
         self.rel_alt_m = self._rel_alt.update(self.pose[2])
 
     def _on_zref(self, msg: Float64):
-        """pose_to_odom（z_align）锁定的 z 基准：EGO 世界系 z = z_mavros - z0。"""
-        if self._z0 is None:
+        """兼容旧桥：只有 z 基准时 XY 偏移为 0。"""
+        if self._origin is None:
             self._z0 = float(msg.data)
+            self._origin = (0.0, 0.0, self._z0)
             self.get_logger().info(
                 f'z 对齐基准 z0={self._z0:.3f}（EGO 世界系 z = z_mavros - z0）')
+
+    def _on_origin(self, msg: PoseStamped):
+        """pose_to_odom 锁定的 EGO 原点。"""
+        p = msg.pose.position
+        self._origin = (float(p.x), float(p.y), float(p.z))
+        self._z0 = self._origin[2]
+        self.get_logger().info(
+            f'EGO 原点 ({self._origin[0]:.3f},{self._origin[1]:.3f},'
+            f'{self._origin[2]:.3f})')
 
     def _ego_z(self, z_mavros: float) -> float:
         """MAVROS local z → EGO/world 可视化高度。"""
@@ -317,8 +335,12 @@ class TargetFollowNode(Node):
         return float(z_mavros) - self._z0
 
     def _ego_xyz(self, xyz) -> tuple:
-        """三元组高度分量做 z 对齐。"""
-        return (float(xyz[0]), float(xyz[1]), self._ego_z(xyz[2]))
+        """MAVROS local → EGO 世界系（含 XY 原点）。"""
+        x, y, z = float(xyz[0]), float(xyz[1]), float(xyz[2])
+        if self._origin is None:
+            return (x, y, self._ego_z(z))
+        x0, y0, z0 = self._origin
+        return (x - x0, y - y0, z - z0)
 
     def _on_depth(self, msg: Image):
         """深度图回调。"""
@@ -335,7 +357,7 @@ class TargetFollowNode(Node):
         if now - self._last_color_t < self.detect_period * 0.75:
             return
         self._last_color_t = now
-        # origin_left 是 NV12（mipi dual 常用），cv_bridge 不认，须走
+        # 左目是 NV12（mipi dual 常用），cv_bridge 不认，须走
         try:
             self.color_bgr = image_msg_to_bgr(msg, self.bridge)
         except Exception as exc:
@@ -344,7 +366,7 @@ class TargetFollowNode(Node):
 
     def _on_visual(self, msg: Image):
         """Stereonet 深彩回调。"""
-        # 官方深彩仅作显示底图兜底（检测画面优先 origin_left）
+        # 官方深彩仅作显示底图兜底（检测画面优先 rectified_image）
         now = time.monotonic()
         if now - self._last_visual_t < 0.2:
             return
@@ -465,14 +487,13 @@ class TargetFollowNode(Node):
         # 停在行人与飞机连线上、距行人 standoff 处（Fast-Planner 式跟飞点）
         gx = tx - ux * self.standoff
         gy = ty - uy * self.standoff
-        # gz 为 EGO 对齐世界系（z_ego = z_mavros - z0）：
-        # follow_z>0 直接是相对高度；用目标 z 时需减基准换系
+        # 跟随点转到 EGO 世界系（减 origin），与 /odom_world 同系
         if self.follow_z > 0:
             gz = self.follow_z
-        else:
-            gz = tz if self._z0 is None else tz - self._z0
-        gz = max(0.05, gz)
-        return (gx, gy, gz)
+            ego_xy = self._ego_xyz((gx, gy, 0.0))
+            return (ego_xy[0], ego_xy[1], gz)
+        ego = self._ego_xyz((gx, gy, tz))
+        return (ego[0], ego[1], max(0.05, ego[2]))
 
     # ---- 安全层与扇区距离 ----
 
@@ -528,8 +549,8 @@ class TargetFollowNode(Node):
         ps.pose.position.z = float(xyz[2])
         # 朝向目标点水平朝向
         if self.target_w is not None:
-            yaw = math.atan2(
-                self.target_w[1] - xyz[1], self.target_w[0] - xyz[0])
+            tw = self._ego_xyz(self.target_w)
+            yaw = math.atan2(tw[1] - xyz[1], tw[0] - xyz[0])
         else:
             yaw = self.yaw
         ps.pose.orientation.z = math.sin(yaw * 0.5)
@@ -560,9 +581,12 @@ class TargetFollowNode(Node):
                 self._ego_xyz(self.target_w), 'world'))
         self._publish_follow_link(goal)
         if self.planner in ('direct', 'position'):
-            # offboard 用 MAVROS local 系：把 EGO 对齐系 z 加回基准
-            sp_goal = goal if self._z0 is None else (
-                goal[0], goal[1], goal[2] + self._z0)
+            # offboard 用 MAVROS local：把 EGO 世界系加回原点
+            if self._origin is None:
+                sp_goal = goal
+            else:
+                x0, y0, z0 = self._origin
+                sp_goal = (goal[0] + x0, goal[1] + y0, goal[2] + z0)
             self.pos_pub.publish(self._pose_msg(sp_goal, 'map'))
         self._last_goal_t = time.monotonic()
         self._last_goal_pub = goal
@@ -616,11 +640,11 @@ class TargetFollowNode(Node):
         if (self.airborne and self.pose is not None
                 and time.monotonic() - self._last_trail_t > 0.2):
             self._last_trail_t = time.monotonic()
-            ez = self._ego_z(self.pose[2])
+            ex, ey, ez = self._ego_xyz(self.pose)
             if (not self.trail
-                    or math.hypot(self.trail[-1][0] - self.pose[0],
-                                  self.trail[-1][1] - self.pose[1]) > 0.02):
-                self.trail.append((self.pose[0], self.pose[1], ez))
+                    or math.hypot(self.trail[-1][0] - ex,
+                                  self.trail[-1][1] - ey) > 0.02):
+                self.trail.append((ex, ey, ez))
                 if len(self.trail) > 2000:
                     self.trail = self.trail[-2000:]
                 self._publish_history_path()
@@ -658,9 +682,10 @@ class TargetFollowNode(Node):
         if self._should_republish_goal(goal):
             self._publish_goal(goal)
 
-        # 位移 HUD：机体 FLU 朝跟随点的方向
-        dx = goal[0] - self.pose[0]
-        dy = goal[1] - self.pose[1]
+        # 位移 HUD：机体 FLU 朝跟随点的方向（goal 已是 EGO 系）
+        body = self._ego_xyz(self.pose)
+        dx = goal[0] - body[0]
+        dy = goal[1] - body[1]
         dist = math.hypot(dx, dy)
         c, s = math.cos(self.yaw), math.sin(self.yaw)
         vx_b = c * dx + s * dy
@@ -699,7 +724,7 @@ class TargetFollowNode(Node):
             lines = [
                 '等待 Stereonet / 行人检测…',
                 'depth: /StereoNetNode/stereonet_depth',
-                '检测画面: /StereoNetNode/origin_left_image',
+                f'检测画面: {LEFT_IMAGE_TOPIC}',
                 '一键：bash .../10_target_follow/run.sh start_stereo:=true',
             ]
         put_cn_lines(
@@ -710,7 +735,7 @@ class TargetFollowNode(Node):
         """OpenCV 双栏：检测画面 | 俯视跟随几何 + 中文状态栏。"""
         if not self.out.enabled():
             return
-        # 左：检测画面（origin_left 优先，退官方深彩/模拟画面）
+        # 左：检测画面（左目优先，退官方深彩/模拟画面）
         left = None
         if self.color_bgr is not None:
             left = self.color_bgr.copy()

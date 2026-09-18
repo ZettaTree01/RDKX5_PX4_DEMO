@@ -4,12 +4,13 @@
 无位姿时仍发布 identity odom/TF，保证 RViz Fixed Frame=world 能显示
 camera_link 点云，且 grid_map 不因 no odom 拒收。
 
-z_align=True（例程 10 EGO 用）：室内 MAVROS local z 是气压绝对高度
-（几十米），而 EGO grid_map 地图 z 范围固定在 [-0.5, 1.5]，机在地图外
-会让 getInflateOccupancy 全部返回 -1（被当成障碍）导致规划必败。
-此处以首个稳定位姿的 z 为基准 z0，EGO 世界系 z_ego = z_mavros - z0；
-z0 经 latched 话题 /drone/ego/z_ref 广播，cloud/goal/poscmd 各桥按同一
-基准变换。锁定前（前 Z_LOCK_FRAMES 帧）z_ego 恒为 0，避免建图期抖动。
+z_align=True（例程 10 EGO 用）：室内 MAVROS local 会带着气压绝对高度
+和上次飞行残留的 XY。EGO grid_map 固定在原点附近
+（默认 XY∈[-4,4]、Z∈[-0.5,1.5]），出界时 getInflateOccupancy 返回 -1，
+C++ 里 if(occ) 把 -1 当成障碍，规划必败。
+以首个稳定位姿为原点 (x0,y0,z0)，EGO 世界系 = MAVROS - origin；
+原点经 latched /drone/ego/origin_ref 与 /drone/ego/z_ref 广播，
+cloud/goal/poscmd 各桥按同一基准变换。锁定前发 (0,0,0)，避免建脏图。
 """
 from __future__ import annotations
 
@@ -51,12 +52,14 @@ class PoseToOdom(Node):
         self.also_camera = bool(self.get_parameter('also_camera_link').value)
         self.z_align = bool(self.get_parameter('z_align').value)
         self._z_frames = 0
-        self._z0 = None
+        self._origin = None  # (x0, y0, z0) MAVROS → EGO
         self._last = None
         self._have_pose = False
         self.pub = self.create_publisher(Odometry, odom_topic, 20)
         self.zref_pub = self.create_publisher(
             Float64, '/drone/ego/z_ref', _LATCHED)
+        self.origin_pub = self.create_publisher(
+            PoseStamped, '/drone/ego/origin_ref', _LATCHED)
         self.tf_br = TransformBroadcaster(self)
         self.create_subscription(
             PoseStamped, pose_topic, self._cb, qos_profile_sensor_data)
@@ -122,27 +125,36 @@ class PoseToOdom(Node):
                     (p.z - p0.z) / dt,
                 )
         self._last = (now, p)
-        # z 对齐：锁定前 z_ego 恒 0（跟随 EKF 收敛），锁定后 z_ego = z - z0
-        z = float(p.z)
+        x, y, z = float(p.x), float(p.y), float(p.z)
         if self.z_align:
-            if self._z0 is None:
+            if self._origin is None:
                 self._z_frames += 1
                 if self._z_frames >= Z_LOCK_FRAMES:
-                    self._z0 = float(p.z)
+                    self._origin = (x, y, z)
+                    oref = PoseStamped()
+                    oref.header.stamp = now.to_msg()
+                    oref.header.frame_id = 'map'
+                    oref.pose.position.x = x
+                    oref.pose.position.y = y
+                    oref.pose.position.z = z
+                    oref.pose.orientation.w = 1.0
+                    self.origin_pub.publish(oref)
                     ref = Float64()
-                    ref.data = self._z0
+                    ref.data = z
                     self.zref_pub.publish(ref)
                     self.get_logger().info(
-                        f'z 基准已锁定 z0={self._z0:.3f}（EGO 世界系 '
-                        f'z_ego = z_mavros - z0）')
-                z = 0.0
+                        f'EGO 原点已锁定 ({x:.3f},{y:.3f},{z:.3f})，'
+                        f'EGO 世界系 = MAVROS local - origin')
+                # 锁定前停在地图原点，避免残留 XY 直接出界
+                x, y, z = 0.0, 0.0, 0.0
             else:
-                z = float(p.z) - self._z0
+                x0, y0, z0 = self._origin
+                x, y, z = x - x0, y - y0, z - z0
         # 用本机时钟，便于与 Stereonet depth 做 ApproximateTime 同步建图
         stamp = now.to_msg()
         self._publish(
             stamp,
-            (p.x, p.y, z),
+            (x, y, z),
             msg.pose.orientation,
             twist,
         )

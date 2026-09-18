@@ -110,7 +110,6 @@ def generate_launch_description():
     stereonet = ExecuteProcess(
         cmd=[
             'bash', os.path.join(STEREO_DIR, 'start_stereonet.sh'),
-            'pointcloud_downsample_step:=4',
             'render_perf:=True',
         ],
         output='screen',
@@ -199,7 +198,7 @@ def generate_launch_description():
             description='启动 EGO 局部占据地图 + A* 路径节点'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='默认 true：RViz 订官方 stereonet_pointcloud2 + 占据地图；省 CPU 时 rviz:=false'),
+            description='默认 true：必须开 RViz（官方点云 + 占据地图）。SSH 也会挂到本机桌面 :0'),
         DeclareLaunchArgument('max_vel', default_value=INDOOR_MAX_VEL),
         DeclareLaunchArgument('safe_distance', default_value='1.2'),
         DeclareLaunchArgument('stop_distance', default_value='0.45'),

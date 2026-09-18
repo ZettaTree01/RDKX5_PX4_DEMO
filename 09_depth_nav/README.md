@@ -25,7 +25,7 @@ RViz2：例程8同款官方彩色点云 + world 点云建模 + 膨胀占据 + EG
 深度相机侧复用例程 8 的 `ensure_mipi_bpu.sh` / `pub_stereo_caminfo.py` / `start_stereonet.sh`。单独验证双目可先：
 
 ```bash
-bash /app/zettatree_demo/08_depth_camera/run.sh          # 或 views / rviz:=false
+bash /app/zettatree_demo/08_depth_camera/run.sh          # 或 views
 ```
 
 ## 板端编译（首次）
@@ -90,7 +90,7 @@ bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 | OptimalBspline / AStarList | `/optimal_list`、`/a_star_list`（规划路线，frame=`world`） |
 | PathHistory | `/drone/nav/path_history` |
 
-Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 TF 即可显示；规划 Marker 在 `world`，由 `pose_to_odom` 提供 `world→camera_link`）。省 CPU 时 `rviz:=false`。
+Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 TF 即可显示；规划 Marker 在 `world`，由 `pose_to_odom` 提供 `world→camera_link`）。SSH 启动也会把 RViz 挂到本机桌面 `:0`。
 **不必**为建模接入橙色点云：规划建图在后台走 `/drone/ego/cloud_world`，与 RViz 是否显示 inflate 无关。
 
 ## 参数
@@ -99,7 +99,7 @@ Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 
 |------|------|------|
 | （默认） | full | 完整 C++ EGO |
 | `backend:=python` | — | Python A* 同构 |
-| `rviz` | `true` | RViz2（官方彩色点云 + OccViz；`rviz:=false` 省 CPU） |
+| `rviz` | `true` | **必须开启** RViz（官方彩色点云 + OccViz）。SSH 自动挂到本机桌面 `:0` |
 | `source` | `stereonet` | 深度源 |
 | `arm` | `false` | 解锁 |
 | `max_vel` | `0.02` | 安全层速度上限 |
@@ -124,3 +124,5 @@ Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 
 - [ego-planner-swarm ros2_version](https://github.com/ZJU-FAST-Lab/ego-planner-swarm/tree/ros2_version)
 - MAVROS + `offboard_manager.py`
 - `libarmadillo-dev`、PCL、Eigen（见 setup 脚本）
+
+台架注意：室内 MAVROS local 会带着气压绝对高度和上次飞行残留的 XY。`pose_to_odom` 在 `z_align:=true` 时把起飞位锁成 EGO 原点（`/drone/ego/origin_ref`），点云/轨迹按同一基准换系，否则飞机会落到 8 m 地图外，`getInflateOccupancy` 返回 -1 被当成障碍。建图只用 `/drone/ego/cloud_world`（已滤掉 0.25 m 内无效视差），不要把原始深度图接到 `grid_map/depth`。

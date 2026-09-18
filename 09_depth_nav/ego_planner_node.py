@@ -202,8 +202,17 @@ class EgoPlannerBridge(Node):
             return
         try:
             pts_ros = _xyz_from_cloud(msg, max_points=10000)
-            # 相机系 → map，再写入局部占据栅格
+            if pts_ros.size == 0:
+                return
+            # 丢掉无效视差近点，否则占据图会把机体格子标成障碍
+            ok = np.isfinite(pts_ros).all(axis=1) & (pts_ros[:, 0] >= 0.25)
+            pts_ros = pts_ros[ok]
             pts_map = _ros_cam_to_map(pts_ros, self.pose, self.yaw)
+            if len(pts_map) == 0:
+                return
+            dxy = np.hypot(pts_map[:, 0] - self.pose[0],
+                           pts_map[:, 1] - self.pose[1])
+            pts_map = pts_map[dxy >= 0.35]
             self.occ.integrate_points(pts_map, self.pose)
         except Exception as exc:
             self.get_logger().warn(

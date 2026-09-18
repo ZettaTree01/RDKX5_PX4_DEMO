@@ -10,7 +10,7 @@
 （`/app/pydev_demo/02_detection_sample/03_ultralytics_yolov8`）：
 
 ```
-BGR 帧 → letterbox 缩放到模型输入 → NV12(h*w*1.5) → hbm_runtime.run
+BGR 帧 → letterbox 缩放到模型输入 → NV12(h*w*1.5) → BPU（`hbm_runtime` 或板载 `hobot_dnn`）
       → 反量化 → 三个尺度(8/16/32) DFL 解码 → 拼接 → 按类 NMS
       → 坐标映射回原图 → 画框
 ```

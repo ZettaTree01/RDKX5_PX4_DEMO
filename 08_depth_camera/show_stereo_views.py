@@ -68,11 +68,8 @@ class StereoViewsNode(Node):
                 self._on_depth, qos_profile_sensor_data)
 
         self.create_subscription(
-            Image, '/StereoNetNode/origin_left_image',
+            Image, '/StereoNetNode/rectified_image',
             lambda m: self._on_side(m, 'left'), qos_profile_sensor_data)
-        self.create_subscription(
-            Image, '/StereoNetNode/origin_right_image',
-            lambda m: self._on_side(m, 'right'), qos_profile_sensor_data)
 
         self.create_timer(0.05, self._tick)
         self.get_logger().info(
@@ -93,7 +90,7 @@ class StereoViewsNode(Node):
                                    throttle_duration_sec=2.0)
 
     def _on_side(self, msg: Image, which: str):
-        """官方 origin_left/right 单目回调（优先于拼接拆分）。"""
+        """Stereonet 校正后的左目（本机 TROS 不发 origin_left/right）。"""
         try:
             bgr = image_msg_to_bgr(msg, self.bridge)
             if which == 'left':

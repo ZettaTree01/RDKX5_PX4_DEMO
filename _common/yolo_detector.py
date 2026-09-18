@@ -2,15 +2,15 @@
 """
 共享板端 YOLO 推理组件。文档 3.1 / 3.2。
 
-BGR 帧 → letterbox 缩放 → NV12(h*w*1.5) → hbm_runtime.run
+BGR 帧 → letterbox 缩放 → NV12(h*w*1.5) → BPU 推理
        → 反量化 → 三个尺度(8/16/32) DFL 解码 → 拼接 → 按类 NMS
        → 坐标映射回原图，返回像素框 [(x1, y1, x2, y2, score, cls_id), ...]。
 
-解码链路与官方示例对齐
-（/app/pydev_demo/02_detection_sample/03_ultralytics_yolov8）。
+后端优先级：
+  1) hbm_runtime.HB_HBMRuntime（新 BSP / 与官方 ultralytics_yolov8 一致）
+  2) hobot_dnn.pyeasy_dnn（RDK X5 常见 BSP，同样跑量化 .bin，走 BPU）
 
-被 04/05/06/10 共用。推理必须走板端量化 .bin + hbm_runtime（BPU），
-不用 CPU ONNX/PyTorch。
+被 04/05/06/10 共用。推理必须走板端量化 .bin + BPU，不用 CPU ONNX/PyTorch。
 
 用法（任务节点内）：
     sys.path.insert(0, os.path.join(
@@ -27,6 +27,7 @@ BGR 帧 → letterbox 缩放 → NV12(h*w*1.5) → hbm_runtime.run
   - 无目标时返回空列表，禁止返回写死的假框
 """
 import os
+from types import SimpleNamespace
 
 import numpy as np
 import cv2
@@ -42,6 +43,11 @@ try:
 except ImportError:
     hbm_runtime = None
 
+try:
+    import hobot_dnn.pyeasy_dnn as pyeasy_dnn
+except ImportError:
+    pyeasy_dnn = None
+
 # 按板上常见位置依次尝试
 MODEL_CANDIDATES = [
     '/opt/hobot/model/x5/basic/yolov8_640x640_nv12.bin',
@@ -53,12 +59,26 @@ MODEL_CANDIDATES = [
 CLASS_NAMES_CANDIDATES = [
     '/app/pydev_demo/02_detection_sample/03_ultralytics_yolov8/coco_classes.names',
     '/opt/hobot/model/x5/basic/coco_classes.names',
+    '/app/zettatree_demo/_common/coco_classes.names',
 ]
 
 # 解码参数，与官方示例对齐
 STRIDES = (8, 16, 32)      # 三个检测头的下采样步长
 REG = 16                   # DFL 每个边（ltrb）的分箱数
 RESIZE_TYPE = 1            # 1 = letterbox（保持比例 + 灰边），与 scale_coords_back 配套
+
+# 板端无 names 文件时的 COCO-80 兜底（与官方 coco_classes.names 一致）
+_COCO80 = (
+    'person bicycle car motorcycle airplane bus train truck boat traffic light '
+    'fire hydrant stop sign parking meter bench bird cat dog horse sheep cow '
+    'elephant bear zebra giraffe backpack umbrella handbag tie suitcase frisbee '
+    'skis snowboard sports ball kite baseball bat baseball glove skateboard '
+    'surfboard tennis racket bottle wine glass cup fork knife spoon bowl banana '
+    'apple sandwich orange broccoli carrot hot dog pizza donut cake chair couch '
+    'potted plant bed dining table toilet tv laptop mouse remote keyboard '
+    'cell phone microwave oven toaster sink refrigerator book clock vase '
+    'scissors teddy bear hair drier toothbrush'
+).split()
 
 
 class _PrintLog:
@@ -89,7 +109,7 @@ def resolve_input_hw(shape):
     """从模型输入 shape 推断 (H, W)，兼容 NCHW 与 NHWC 两种声明。"""
     dims = [int(d) for d in shape]
     if len(dims) == 4:
-        if dims[1] in (1, 3):       # (N, C, H, W)
+        if dims[1] in (1, 3):       # (N, C, H, W) 或 NV12 声明
             return dims[2], dims[3]
         return dims[1], dims[2]     # (N, H, W, C)
     if len(dims) == 3:              # (H, W, C)
@@ -165,10 +185,14 @@ def is_scale_quant(quant_type):
 
 def dequantize_tensor(q_tensor, quant_info):
     """按量化参数反量化（支持 per-tensor / per-channel / 空 zero_point）。"""
-    if not is_scale_quant(getattr(quant_info, 'quant_type', None)):
+    if quant_info is None or not is_scale_quant(
+            getattr(quant_info, 'quant_type', None)):
         return q_tensor.astype(np.float32, copy=False)
 
     scale = np.asarray(quant_info.scale, dtype=np.float32)
+    if scale.size == 0:
+        return q_tensor.astype(np.float32, copy=False)
+
     zero_point = np.asarray(quant_info.zero_point, dtype=np.float32)
     q = q_tensor.astype(np.float32)
 
@@ -176,8 +200,11 @@ def dequantize_tensor(q_tensor, quant_info):
         zp = zero_point.reshape(-1)[0] if zero_point.size else np.float32(0.0)
         return (q - zp) * scale
 
+    axis = getattr(quant_info, 'axis', 0)
+    if axis < 0:
+        axis = q.ndim + axis
     shape = [1] * q.ndim
-    shape[getattr(quant_info, 'axis', 0)] = -1
+    shape[axis] = -1
     scale = scale.reshape(shape)
     # 对称量化的 zero_point 可能为空（等价于 0），不能直接 reshape
     if zero_point.size == 0:
@@ -232,6 +259,20 @@ def scale_coords_back(xyxy, img_w, img_h, input_w, input_h,
     return xyxy
 
 
+def _quant_from_dnn_props(props):
+    """hobot_dnn TensorProperties → dequantize_tensor 可用的 quant_info。"""
+    scale = np.asarray(getattr(props, 'scale_data', []), dtype=np.float32)
+    if scale.size == 0:
+        # 已是 float 输出（类别头常见），跳过反量化
+        return SimpleNamespace(quant_type=None, scale=scale, zero_point=[], axis=-1)
+    return SimpleNamespace(
+        quant_type=1,  # SCALE
+        scale=scale,
+        zero_point=[],
+        axis=-1,       # NHWC per-channel
+    )
+
+
 class YoloDetector:
     """板端量化 YOLO 检测器：detect(bgr) → 像素框列表。
 
@@ -247,6 +288,7 @@ class YoloDetector:
         self.max_candidates = max(50, int(max_candidates))
 
         self.model = None
+        self.backend = None          # 'hbm_runtime' | 'hobot_dnn'
         self.model_name = None
         self.input_name = None
         self.output_names = []
@@ -259,11 +301,13 @@ class YoloDetector:
             np.newaxis, np.newaxis, :]
         self.class_names = self._load_class_names()
 
-        if hbm_runtime is None:
+        path = model_path or first_existing_model()
+        if hbm_runtime is None and pyeasy_dnn is None:
             self._log.error(
-                'hbm_runtime 不可用，无法使用 BPU 量化模型（不要回退 CPU YOLO）')
+                '无 BPU Python 后端：hbm_runtime / hobot_dnn 均不可用'
+                '（不要回退 CPU YOLO）')
         else:
-            self._load_model(model_path or first_existing_model())
+            self._load_model(path)
 
     @property
     def loaded(self):
@@ -271,7 +315,7 @@ class YoloDetector:
         return self.model is not None
 
     def _load_class_names(self):
-        """从候选路径加载 COCO 类别名列表；失败返回空列表。"""
+        """从候选路径加载 COCO 类别名列表；失败回退内置 COCO-80。"""
         for path in CLASS_NAMES_CANDIDATES:
             if os.path.isfile(path):
                 try:
@@ -281,41 +325,84 @@ class YoloDetector:
                         return names
                 except OSError as e:
                     self._log.warn(f'类别表读取失败（{path}）: {e}')
-        return []
+        return list(_COCO80)
 
     def _load_model(self, model_path):
-        """加载量化 .bin；输出分支数须为 2×STRIDES，否则视为不兼容。"""
-        try:
-            model = hbm_runtime.HB_HBMRuntime(model_path)
-            model_name = model.model_names[0]
-            input_name = model.input_names[model_name][0]
-            output_names = list(model.output_names[model_name])
-            output_quants = model.output_quants[model_name]
-            input_h, input_w = resolve_input_hw(
-                model.input_shapes[model_name][input_name])
+        """优先 hbm_runtime，其次 hobot_dnn；输出分支数须为 2×STRIDES。"""
+        errors = []
+        if hbm_runtime is not None:
+            try:
+                self._load_hbm(model_path)
+                return
+            except Exception as e:
+                errors.append(f'hbm_runtime: {e}')
+                self.model = None
+        if pyeasy_dnn is not None:
+            try:
+                self._load_hobot_dnn(model_path)
+                return
+            except Exception as e:
+                errors.append(f'hobot_dnn: {e}')
+                self.model = None
+        self._log.error(
+            'BPU 量化模型未加载: ' + ' | '.join(errors)
+            + f'；模型路径={model_path}')
 
-            if len(output_names) != 2 * len(STRIDES):
-                raise ValueError(
-                    f'输出分支数 {len(output_names)} 与本组件假设的 '
-                    f'{2 * len(STRIDES)} 不一致，请核对 output_names')
+    def _apply_io_meta(self, model_path, input_h, input_w, output_names, backend):
+        """写入输入尺寸 / 输出名并校验分支数。"""
+        if len(output_names) != 2 * len(STRIDES):
+            raise ValueError(
+                f'输出分支数 {len(output_names)} 与本组件假设的 '
+                f'{2 * len(STRIDES)} 不一致，请核对 output_names')
+        self.input_h = int(input_h)
+        self.input_w = int(input_w)
+        self.output_names = list(output_names)
+        self.anchor_sizes = [self.input_h // s for s in STRIDES]
+        self.anchors = {g: gen_anchor(g) for g in self.anchor_sizes}
+        self.backend = backend
+        self._log.info(
+            f'BPU 量化 YOLO: {model_path} '
+            f'({self.input_w}x{self.input_h}) backend={backend}')
+        self._log.info(f'输出张量: {self.output_names}')
 
-            self.model = model
-            self.model_name = model_name
-            self.input_name = input_name
-            self.output_names = output_names
-            self.output_quants = output_quants
-            self.input_h = input_h
-            self.input_w = input_w
-            self.anchor_sizes = [input_h // s for s in STRIDES]
-            self.anchors = {g: gen_anchor(g) for g in self.anchor_sizes}
-            self._log.info(
-                f'BPU 量化 YOLO: {model_path} ({input_w}x{input_h}) backend=hbm_runtime')
-            self._log.info(f'输出张量: {output_names}')
-        except Exception as e:
-            self.model = None
-            self._log.error(
-                f'BPU 量化模型未加载: {e}；请安装 tros/hobot 模型或跑 '
-                '/app/pydev_demo 官方 YOLOv8 示例')
+    def _load_hbm(self, model_path):
+        """hbm_runtime.HB_HBMRuntime 加载路径。"""
+        model = hbm_runtime.HB_HBMRuntime(model_path)
+        model_name = model.model_names[0]
+        input_name = model.input_names[model_name][0]
+        output_names = list(model.output_names[model_name])
+        output_quants = model.output_quants[model_name]
+        input_h, input_w = resolve_input_hw(
+            model.input_shapes[model_name][input_name])
+        self.model = model
+        self.model_name = model_name
+        self.input_name = input_name
+        self.output_quants = output_quants
+        self._apply_io_meta(model_path, input_h, input_w, output_names,
+                            'hbm_runtime')
+
+    def _load_hobot_dnn(self, model_path):
+        """hobot_dnn.pyeasy_dnn.load 加载路径（板载常用）。"""
+        models = pyeasy_dnn.load(model_path)
+        if not models:
+            raise RuntimeError('pyeasy_dnn.load 返回空列表')
+        model = models[0]
+        if len(model.inputs) < 1 or len(model.outputs) < 1:
+            raise RuntimeError('模型无输入/输出张量')
+
+        inp = model.inputs[0]
+        input_h, input_w = resolve_input_hw(inp.properties.shape)
+        output_names = [t.name for t in model.outputs]
+        output_quants = {
+            t.name: _quant_from_dnn_props(t.properties) for t in model.outputs
+        }
+
+        self.model = model
+        self.model_name = getattr(model, 'name', 'yolo')
+        self.input_name = inp.name
+        self.output_quants = output_quants
+        self._apply_io_meta(model_path, input_h, input_w, output_names,
+                            'hobot_dnn')
 
     def label(self, cls_id):
         """类别 id → 可读名称；越界时返回 ``cls{N}``。"""
@@ -325,14 +412,29 @@ class YoloDetector:
 
     # ---- 推理链路 ----
 
-    def _infer(self, frame):
-        """BGR → letterbox → NV12 → ``hbm_runtime.run``，返回原始输出字典。"""
+    def _make_nv12(self, frame):
+        """BGR → letterbox → NV12 NHWC(1, H*1.5, W, 1)。"""
         resized = resized_image(frame, self.input_w, self.input_h)
         y, uv = bgr_to_nv12_planes(resized)
         nv12 = np.concatenate((y.reshape(-1), uv.reshape(-1)), axis=0)
-        nv12 = nv12.reshape((1, self.input_h * 3 // 2, self.input_w, 1))
-        outputs = self.model.run({self.model_name: {self.input_name: nv12}})
-        return outputs[self.model_name]
+        return nv12.reshape((1, self.input_h * 3 // 2, self.input_w, 1))
+
+    def _infer(self, frame):
+        """BGR → NV12 → BPU forward，返回 {name: ndarray}。"""
+        nv12 = self._make_nv12(frame)
+        if self.backend == 'hbm_runtime':
+            outputs = self.model.run(
+                {self.model_name: {self.input_name: nv12}})
+            return outputs[self.model_name]
+
+        # hobot_dnn: Model.forward → list[PyDNNTensor]
+        outs = self.model.forward(nv12)
+        result = {}
+        for i, tensor in enumerate(outs):
+            name = self.output_names[i] if i < len(self.output_names) else (
+                getattr(tensor, 'name', None) or f'out{i}')
+            result[name] = np.asarray(tensor.buffer)
+        return result
 
     def _decode_boxes(self, boxes_output, valid_indices, grid_size, stride):
         """DFL 解码：softmax(16 分箱) 求期望得 ltrb，再由网格中心还原 xyxy。"""

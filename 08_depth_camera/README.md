@@ -21,8 +21,8 @@ bash /app/zettatree_demo/08_depth_camera/run.sh
 
 | 命令 | 说明 |
 |------|------|
-| `bash run.sh` | MIPI → Stereonet → OpenCV + RViz |
-| `bash run.sh rviz:=false` | 不启动 RViz |
+| `bash run.sh` | MIPI → Stereonet → OpenCV + **RViz（默认开启）** |
+| `bash run.sh rviz:=false` | 仅调试需要时才关 RViz |
 | `bash run.sh views` | 分窗：LEFT / RIGHT / VISUAL / DEPTH |
 | `bash run.sh rviz` | 仅开 RViz（需另终端已跑默认模式） |
 | `bash run.sh source:=simulate start_stereonet:=false` | 无相机，验证软件 |
@@ -34,7 +34,7 @@ bash /app/zettatree_demo/08_depth_camera/run.sh
 | OpenCV 右 | 当前帧俯视点云（`panel_mode:=depth` 可关掉） |
 | RViz | `/StereoNetNode/stereonet_pointcloud2`，Fixed Frame=`camera_link` |
 
-板端需 **桌面终端**（有 `DISPLAY`）才能弹 OpenCV / RViz。
+OpenCV 需桌面终端（有 `DISPLAY`）。RViz 默认开启：SSH 也会自动挂到本机桌面 `:0`（以 sunrise 运行）。
 
 ## 目录结构
 
@@ -58,11 +58,11 @@ bash /app/zettatree_demo/08_depth_camera/run.sh
 |------|-----|
 | 型号 | GS130W（双 SC132GS） |
 | 基线 | **80 mm**（标定约 **79.17 mm**） |
-| 分辨率 | **640×352**，LPWM，`rotation=90`，`channel=2/0`，`dual_combine=2` |
+| 分辨率 | **640×352**，LPWM，`rotation=270`（本机 GS130W 倒装；官方示例 90 会画面倒置并左右目对调，深度全是假近点），`channel=2/0`，`dual_combine=2` |
 | 内参 | **`fx=fy≈328.379`**，`cx=320`，`cy=176` |
-| 模型 | `DStereoV2.4_int16.bin`，`post_version=auto`，`uncertainty_th=-0.09` |
+| 模型 | `DStereoV2.4_int16.bin`，`postprocess=v2.3`（必须与模型匹配，不能写 `auto`/`v1`），`uncertainty_th=-0.09` |
 | 右目 CameraInfo | `P[0,3]=+fx·B` |
-| Stereonet | `calib_method=none`，`baseline`，`render_type=indoor` |
+| Stereonet | `need_rectify=false`（MIPI GDC 已校正），参数名 `base_line`（不是 `baseline`），`render_type=0`（indoor） |
 
 ## 话题
 
@@ -72,6 +72,7 @@ bash /app/zettatree_demo/08_depth_camera/run.sh
 | `/drone/stereo/*/camera_info` | 左右目内参 |
 | `/StereoNetNode/stereonet_depth` | 深度（mono16，mm） |
 | `/StereoNetNode/stereonet_visual` | 官方深彩 |
+| `/StereoNetNode/rectified_image` | 校正后左目（本机 TROS 不发 `origin_left_image`） |
 | `/StereoNetNode/stereonet_pointcloud2` | 官方 XYZRGB 点云 |
 | `/drone/depth/image_raw` | 原始深度转发 |
 | `/drone/depth/image_color` | 官方深度伪彩 |
@@ -91,7 +92,7 @@ ros2 topic hz /StereoNetNode/stereonet_pointcloud2
 | 参数 | 默认 | 说明 |
 |------|------|------|
 | `source` | `stereonet` | `stereonet` / `simulate` / `orbbec` / `realsense` |
-| `rviz` | `true` | 是否启动 RViz |
+| `rviz` | `true` | **必须开启** RViz。SSH 无 DISPLAY 时自动挂到本机桌面 `:0` |
 | `show` | `true` | OpenCV 窗口 |
 | `start_stereonet` | `true` | 是否拉起 BPU Stereonet |
 | `baseline_m` | `0.07917` | 基线（米） |
@@ -112,3 +113,13 @@ bash /app/zettatree_demo/08_depth_camera/run.sh \
 
 - `tros-humble-hobot-stereonet`、`mipi_cam`、GS130W 扩展板
 - 例程 9 / 10 复用本目录的 `ensure_mipi_bpu.sh`、`pub_stereo_caminfo.py`、`start_stereonet.sh`
+
+## 常见问题
+
+| 现象 | 处理 |
+|------|------|
+| 画面倒置、深度只有十几厘米 | 本机模组倒装，`ensure_mipi_bpu.sh` 默认 `rotation=270`。勿改回官方 `90` |
+| 深度整体缩小上千倍 / 点云挤在机体旁 | Stereonet 参数名必须是 `base_line`、`postprocess`（V2.4 用 `v2.3`），写错会静默用 C++ 默认 |
+| 校正后画面大面积变黑 | `need_rectify` 必须 `false`：GS130W 出图已经过 GDC 校正 |
+| YOLO / 左目无图 | 订 `/StereoNetNode/rectified_image`，本机 TROS 不发 `origin_left_image` |
+| SSH 下看不到 RViz | 已自动挂到本机桌面 `:0`（以 sunrise 运行）。接 HDMI 即可看到；root 不要直接 `rviz2` |

@@ -6,6 +6,10 @@
 #   - Yahboom/D-Robotics GS130W 双目深度教程
 # 官方推荐：640x352、lpwm、channel=2/0、rotation=90、dual_combine=2
 #
+# rotation 取 270 不是笔误：本机 GS130W 模组倒装（IMU 显示机体水平，画面却整幅
+# 倒置）。rotation=90 时图像上下颠倒，且左右目角色被 180° 旋转对调，视差解出来
+# 全是十几厘米的假近点——正是 EGO「the drone is in obstacle」和 YOLO 认不出人的
+# 根因。改 270 后画面转正、左右目复位，深度恢复正常（近处椅子 ~0.5m、墙 ~5m）。
 # 注意：不要用 `ros2 topic echo` 整包 Image 判活（NV12 大图易超时误报「未见帧」）。
 set -e
 # shellcheck disable=SC1091
@@ -17,7 +21,7 @@ FPS="${MIPI_FRAMERATE:-15.0}"
 CH0="${MIPI_CHANNEL:-2}"
 CH1="${MIPI_CHANNEL2:-0}"
 LPWM="${MIPI_LPWM_ENABLE:-True}"
-ROT="${MIPI_ROTATION:-90.0}"
+ROT="${MIPI_ROTATION:-270.0}"
 CALIB="${MIPI_CALIB_FILE:-/opt/tros/humble/lib/mipi_cam/config/SC132gs_dual_calibration.yaml}"
 NEED_RESTART=0
 

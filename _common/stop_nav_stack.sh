@@ -33,6 +33,8 @@ _term_then_kill '/app/zettatree_demo/08_depth_camera/show_stereo_views.py'
 _term_then_kill '/app/zettatree_demo/08_depth_camera/pub_stereo_caminfo.py'
 _term_then_kill '/app/zettatree_demo/08_depth_camera/start_stereonet.sh'
 _term_then_kill '/app/zettatree_demo/_common/offboard_manager.py'
+_term_then_kill '/app/zettatree_demo/_common/gcs_heartbeat.py'
+_term_then_kill 'gcs_heartbeat.py'
 _term_then_kill '/app/zettatree_demo/02_bench_pose_sim/bench_pose_sim.py'
 
 # EGO / Stereonet / RViz
@@ -73,6 +75,7 @@ for pat in \
   '/opt/tros/humble/lib/mipi_cam/mipi_cam' \
   'ros2 run mipi_cam mipi_cam' \
   'offboard_manager.py' \
+  'gcs_heartbeat.py' \
   'bench_pose_sim.py'
 do
   pkill -9 -f "$pat" 2>/dev/null || true

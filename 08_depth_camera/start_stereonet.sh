@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # GS130W + hobot_stereonet（BPU DStereo V2.4 int16）
-# TROS 参数：baseline、calib_method=none、render_type 为 indoor/distance 等字符串。
+#
+# 参数名必须与本机 TROS 节点声明的一致（用 ros2 param list /StereoNetNode 核对）：
+#   base_line（不是 baseline）、postprocess（不是 post_version）、
+#   pc_max_depth / height_min / height_max（不是 pointcloud_*）。
+# 写错名字不会报错，只会静默用 C++ 默认值：base_line=0.1、postprocess=v1，
+# 视差解码版本对不上，深度会整体缩小上千倍、点云挤成几厘米。
+#
+# need_rectify 固定 false：GS130W mipi dual 出图已由 GDC 按
+# SC132gs_dual_calibration.yaml 校正；节点自带的 stereo.yaml 是 1280x640 的
+# 另一款相机，拿它再校正一次会把画面 70% 推出视野变黑。
 # CameraInfo 由 pub_stereo_caminfo.py 发布。
 set -e
 # shellcheck disable=SC1091
@@ -108,15 +117,31 @@ if ! pgrep -f 'pub_stereo_caminfo.py' >/dev/null 2>&1; then
   sleep 1
 fi
 
-# 官方声明为枚举字符串；数字 0 会被 YAML 解析成 integer，节点直接退出
-RENDER_TYPE="${RENDER_TYPE:-indoor}"
+# 本机 TROS（X5）将 render_type 声明为 integer：0=indoor，1=outdoor。
+# 写成字符串 "indoor" 会直接 InvalidParameterTypeException 退出。
+RENDER_TYPE="${RENDER_TYPE:-0}"
 case "${RENDER_TYPE}" in
-  0) RENDER_TYPE=indoor ;;
-  1) RENDER_TYPE=outdoor ;;
+  indoor|Indoor|0) RENDER_YAML=0 ;;
+  outdoor|Outdoor|1) RENDER_YAML=1 ;;
+  distance|2) RENDER_YAML=2 ;;
+  *) RENDER_YAML=0 ;;
 esac
-PC_STEP="${POINTCLOUD_DOWNSAMPLE_STEP:-2}"
 RENDER_PERF="${RENDER_PERF:-true}"
-RENDER_YAML="\"${RENDER_TYPE}\""
+
+# 视差后处理版本必须与模型匹配，官方 launch 的对应关系：
+#   DStereoV2.0=v2  V2.1=v2.1  V2.2=v2.2  V2.3(.1)=v2.3
+#   V2.4_int16 / V2.4_int8=v2.3   V2.4_int16_320_256=v2.1
+POSTPROCESS="${STEREO_POSTPROCESS:-}"
+if [ -z "$POSTPROCESS" ]; then
+  case "$(basename "$MODEL")" in
+    DStereoV2.4_int16_320_256.bin) POSTPROCESS=v2.1 ;;
+    DStereoV2.4_int16.bin|DStereoV2.4_int8.bin) POSTPROCESS=v2.3 ;;
+    DStereoV2.3.bin|DStereoV2.3.1.bin) POSTPROCESS=v2.3 ;;
+    DStereoV2.2.bin) POSTPROCESS=v2.2 ;;
+    DStereoV2.1.bin) POSTPROCESS=v2.1 ;;
+    *) POSTPROCESS=v2 ;;
+  esac
+fi
 
 PARAMS="${STEREO_PARAMS_FILE:-}"
 if [ -z "$PARAMS" ]; then
@@ -132,44 +157,49 @@ if ! mkdir -p "$PARAMS_DIR" 2>/dev/null || ! (touch "$PARAMS" 2>/dev/null); then
   }
 fi
 
-# 仅写入本机 TROS 已声明的参数名（baseline / post_version / calib_method）
+# 仅写入本机 TROS 已声明的参数名
 cat > "$PARAMS" <<EOF
 /**:
   ros__parameters:
     stereonet_model_file_path: "${MODEL}"
     stereo_image_topic: "/image_combine_raw"
     camera_info_topic: "${RIGHT_INFO}"
-    left_camera_info_topic: "${LEFT_INFO}"
-    calib_method: "none"
     stereo_calib_file_path: "${CALIB_ABS}"
+    stereo_combine_mode: ${COMBINE_MODE}
+    need_rectify: false
+    load_rectify_param: false
     camera_fx: ${FX}
     camera_fy: ${FY}
     camera_cx: ${CX}
     camera_cy: ${CY}
-    baseline: ${BASELINE_M}
-    post_version: "auto"
+    base_line: ${BASELINE_M}
+    postprocess: "${POSTPROCESS}"
+    max_disp: 192
     render_type: ${RENDER_YAML}
     render_perf: ${RENDER_PERF}
+    render_need_filter: true
+    render_max_depth: 10000
+    visual_alpha: 3
+    visual_beta: 0
     uncertainty_th: -0.09
-    pointcloud_depth_max: 5.0
-    pointcloud_height_min: -10.0
-    pointcloud_height_max: 10.0
-    pointcloud_downsample_step: ${PC_STEP}
-    publish_pcd_enabled: true
-    publish_visual_enabled: true
-    save_result_flag: false
-    save_stereo_flag: false
-    save_disp_flag: false
-    save_depth_flag: false
-    save_visual_flag: false
-    save_pcd_flag: false
-    save_origin_flag: false
+    depth_need_filter: true
+    pc_max_depth: 5.0
+    height_min: -10.0
+    height_max: 10.0
+    # need_pcl_filter 关着时 leaf_size/stdv/KMean 的 C++ 默认值是未初始化脏值，
+    # 显式写入官方默认，避免以后打开滤波踩坑
+    need_pcl_filter: false
+    leaf_size: 0.05
+    stdv: 0.01
+    KMean: 10
+    use_usb_camera: false
+    use_local_image: false
 EOF
 
 echo "[GS130W stereonet] model=$MODEL cwd=$RUN_DIR"
 echo "[GS130W stereonet] fx=$FX fy=$FY cx=$CX cy=$CY baseline=${BASELINE_M}m combine_mode=$COMBINE_MODE"
-echo "[GS130W stereonet] camera_info=$RIGHT_INFO left=$LEFT_INFO calib_method=none post_version=auto"
-echo "[GS130W stereonet] render_type=$RENDER_YAML downsample_step=$PC_STEP"
+echo "[GS130W stereonet] camera_info=$RIGHT_INFO need_rectify=false postprocess=$POSTPROCESS"
+echo "[GS130W stereonet] render_type=$RENDER_YAML"
 echo "[GS130W stereonet] params=$PARAMS"
 
 extra=()

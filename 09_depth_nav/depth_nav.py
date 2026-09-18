@@ -54,7 +54,7 @@ GS_CX, GS_CY = 320.0, 176.0
 TOPIC_PRESETS = {
     'stereonet': {
         'depth': '/StereoNetNode/stereonet_depth',
-        'color': '/StereoNetNode/origin_left_image',
+        'color': '/StereoNetNode/rectified_image',
         'info': '/StereoNetNode/stereonet_depth/camera_info',
         'visual': '/StereoNetNode/stereonet_visual',
         'points': '/StereoNetNode/stereonet_pointcloud2',
@@ -323,7 +323,7 @@ class DepthNavNode(Node):
             return
         self.get_logger().warn(
             '尚无深度帧。stereonet 请先：'
-            'bash /app/zettatree_demo/08_depth_camera/run.sh rviz:=false '
+            'bash /app/zettatree_demo/08_depth_camera/run.sh '
             '或本例程 start_stereo:=true',
             throttle_duration_sec=5.0)
 
@@ -639,7 +639,7 @@ class DepthNavNode(Node):
                 'depth: /StereoNetNode/stereonet_depth',
                 'visual/points: stereonet_visual + stereonet_pointcloud2',
                 '一键：bash .../09_depth_nav/run.sh start_stereo:=true',
-                '或另开：bash .../08_depth_camera/run.sh rviz:=false',
+                '或另开：bash .../08_depth_camera/run.sh',
             ]
         else:
             lines = [

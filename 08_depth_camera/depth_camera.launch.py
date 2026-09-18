@@ -83,7 +83,8 @@ def generate_launch_description():
             '-p', 'channel:=2',
             '-p', 'channel2:=0',
             '-p', 'lpwm_enable:=True',
-            '-p', 'rotation:=90.0',
+            # 270 而非官方 90：本机模组倒装，见 ensure_mipi_bpu.sh 注释
+            '-p', 'rotation:=270.0',
             '-p', 'gdc_enable:=True',
             '-p', 'frame_id:=camera_link',
             '-p', ('camera_calibration_file_path:='
@@ -202,7 +203,7 @@ def generate_launch_description():
         '/StereoNetNode/stereonet_pointcloud2，Fixed Frame=camera_link】。',
     ])
 
-    # 可选 RViz：直接订官方 XYZRGB，无需 map→camera_link TF
+    # 默认 RViz：直接订官方 XYZRGB，无需 map→camera_link TF
     rviz_node = ExecuteProcess(
         cmd=[
             'bash', os.path.join(DEMO_ROOT, '_common', 'rviz_run.sh'),
@@ -246,7 +247,7 @@ def generate_launch_description():
         DeclareLaunchArgument('snapshot', default_value='none'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='默认 true：RViz 订官方 stereonet_pointcloud2；省 CPU 时 rviz:=false'),
+            description='默认 true：必须开 RViz。SSH 也会挂到本机桌面 :0；仅无图形会话时跳过'),
         DeclareLaunchArgument(
             'map', default_value='false',
             description='独立 pointcloud_map 节点；默认 false（已由 depth_pointcloud 内建）'),

@@ -43,10 +43,13 @@ class BenchPoseSim(Node):
         self.dt = 1.0 / rate
         self.pos = [0.0, 0.0, 0.0]
         self.target = [0.0, 0.0, 0.0]
-        self.orientation = None
+        # 固定航向：台架无磁，靠 EV yaw；勿跟飞控噪声姿态抖动
+        self.orientation = (0.0, 0.0, 0.0, 1.0)
         self.vel = None
         self.vel_time = None
         self._snapped_local = False
+        # 气压/EKF 绝对高度常为几十~上千米；视觉统一归零到相对高度
+        self._z0 = None
         # 回灌外部视觉位姿给飞控 EKF
         self.pub = self.create_publisher(
             PoseStamped, '/mavros/vision_pose/pose', 10)
@@ -61,8 +64,14 @@ class BenchPoseSim(Node):
             self._on_local, qos_profile_sensor_data)
         self.create_timer(self.dt, self._tick)
         self.get_logger().info(
-            f'台架模拟器：立即回灌视觉，偏差超过 {SNAP_M:.1f} m 时对齐，'
-            f'限速 {max_speed} m/s')
+            f'台架模拟器：立即回灌视觉（z 相对首帧归零，航向固定），偏差超过 '
+            f'{SNAP_M:.1f} m 时对齐，限速 {max_speed} m/s')
+
+    def _rel(self, x, y, z):
+        """把飞控/设定点绝对坐标换成视觉相对坐标（z0 锁定前 z→0）。"""
+        if self._z0 is None:
+            return float(x), float(y), 0.0
+        return float(x), float(y), float(z) - self._z0
 
     def _snap_to(self, xyz, reason):
         """偏差过大则瞬移，避免 EKF 长时间积分爬升。"""
@@ -77,21 +86,21 @@ class BenchPoseSim(Node):
         return True
 
     def _on_local(self, msg):
-        """首次收到飞控本地点时对齐一次（室内气压常已是几十米）。"""
+        """首次收到飞控本地点：锁定 z0，XY 对齐，视觉 z 归零。"""
+        p = msg.pose.position
+        if self._z0 is None:
+            self._z0 = float(p.z)
+            self.get_logger().info(
+                f'锁定视觉高度基准 z0={self._z0:.2f} m（之后视觉 z 为相对高度）')
         if self._snapped_local:
             return
-        p = msg.pose.position
-        q = msg.pose.orientation
-        self.orientation = (q.x, q.y, q.z, q.w)
-        self._snap_to((p.x, p.y, p.z), '收到飞控本地点')
+        self._snap_to(self._rel(p.x, p.y, p.z), '收到飞控本地点')
         self._snapped_local = True
 
     def _on_setpoint(self, msg):
-        """位置设定点更新：记录目标与姿态，偏差过大时瞬移对齐。"""
+        """位置设定点更新：记录目标，偏差过大时瞬移对齐（姿态保持固定）。"""
         p = msg.pose.position
-        self.target = [p.x, p.y, p.z]
-        q = msg.pose.orientation
-        self.orientation = (q.x, q.y, q.z, q.w)
+        self.target = list(self._rel(p.x, p.y, p.z))
         self._snap_to(self.target, '设定点偏离过远')
 
     def _on_velocity(self, msg):

@@ -66,7 +66,8 @@ def generate_launch_description():
                          'launch', 'node.launch')),
         launch_arguments={
             'fcu_url': fcu_url,
-            'gcs_url': '',
+            # 本地 GCS 桥：gcs_heartbeat.py 往 14550 打 HEARTBEAT，消「No GCS datalink」
+            'gcs_url': 'udp://0.0.0.0:14550@',
             'tgt_system': '1',
             'tgt_component': '1',
             'pluginlists_yaml': os.path.join(COMMON, 'px4_pluginlists.yaml'),
@@ -74,6 +75,13 @@ def generate_launch_description():
                 get_package_share_directory('mavros'),
                 'launch', 'px4_config.yaml'),
         }.items(),
+    )
+
+    gcs_hb = ExecuteProcess(
+        cmd=['python3', os.path.join(COMMON, 'gcs_heartbeat.py'),
+             '--host', '127.0.0.1', '--port', '14550', '--rate', '1.0'],
+        output='screen',
+        name='gcs_heartbeat',
     )
 
     manager = ExecuteProcess(
@@ -113,8 +121,6 @@ def generate_launch_description():
 
     stereonet = ExecuteProcess(
         cmd=['bash', os.path.join(STEREO_DIR, 'start_stereonet.sh'),
-             # YOLO 需要 origin_left（保留发布）；点云抽稀 + 性能模式保帧率
-             'pointcloud_downsample_step:=6',
              'render_perf:=True',
              ],
         output='screen',
@@ -170,7 +176,8 @@ def generate_launch_description():
             ('odom_world', '/odom_world'),
             ('grid_map/odom', '/odom_world'),
             ('grid_map/cloud', '/drone/ego/cloud_world'),
-            ('grid_map/depth', '/StereoNetNode/stereonet_depth'),
+            # 不用原始深度建图：未滤波的近零深度会投影到机体格子。
+            # 点云已由 cloud_cam_to_world 滤近距并变到 EGO 世界系。
             ('planning/bspline', '/planning/bspline'),
             ('planning/data_display', '/planning/data_display'),
             ('goal_point', '/goal_point'),
@@ -206,10 +213,10 @@ def generate_launch_description():
             'grid_map/cy': 176.0,
             'grid_map/fx': 328.379,
             'grid_map/fy': 328.379,
-            'grid_map/use_depth_filter': False,
+            'grid_map/use_depth_filter': True,
             'grid_map/depth_filter_tolerance': 0.15,
             'grid_map/depth_filter_maxdist': 5.0,
-            'grid_map/depth_filter_mindist': 0.2,
+            'grid_map/depth_filter_mindist': 0.35,
             'grid_map/depth_filter_margin': 2,
             'grid_map/k_depth_scaling_factor': 1000.0,
             'grid_map/skip_pixel': 3,
@@ -322,7 +329,7 @@ def generate_launch_description():
             description='ego=完整EGO(/move_base_simple/goal)；direct=位置直跟'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='默认 true：RViz Fixed Frame=camera_link（同例程8）+ 规划/跟随；省 CPU 时 rviz:=false'),
+            description='默认 true：必须开 RViz（例程8点云 + 规划/跟随）。SSH 也会挂到本机桌面 :0'),
         DeclareLaunchArgument('standoff', default_value='0.8'),
         DeclareLaunchArgument('follow_z', default_value=INDOOR_ALT),
         DeclareLaunchArgument('max_vel', default_value=INDOOR_MAX_VEL),
@@ -334,6 +341,7 @@ def generate_launch_description():
             description='无显示器时的 JPEG 快照路径'),
         tip,
         mavros,
+        gcs_hb,
         manager,
         caminfo,
         map_world_tf,
@@ -342,9 +350,10 @@ def generate_launch_description():
         occ_viz,
         poscmd_bridge,
         TimerAction(period=1.0, actions=[simulator]),
-        TimerAction(period=1.5, actions=[stereonet]),
-        TimerAction(period=4.0, actions=[ego_planner]),
-        TimerAction(period=4.2, actions=[traj_server]),
-        TimerAction(period=5.0, actions=[task]),
-        TimerAction(period=7.5, actions=[rviz_node]),
+        # Stereonet 与 YOLO/EGO 抢 BPU 易在启动瞬间把 inference 队列打满并 segfault
+        TimerAction(period=12.0, actions=[stereonet]),
+        TimerAction(period=16.0, actions=[ego_planner]),
+        TimerAction(period=16.2, actions=[traj_server]),
+        TimerAction(period=18.0, actions=[task]),
+        TimerAction(period=20.0, actions=[rviz_node]),
     ])

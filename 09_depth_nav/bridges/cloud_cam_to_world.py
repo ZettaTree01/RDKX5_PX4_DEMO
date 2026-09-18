@@ -4,9 +4,10 @@
 Stereonet: frame=camera_link，点为 ROS 相机系 (x前 y左 z上)。
 台架下 map≈world≈机体起飞系；用 MAVROS pose 将点变到 world。
 
-z_align=True（例程 10 EGO 用）：点云 world z 减去 pose_to_odom 广播的
-z 基准（/drone/ego/z_ref），与 odom 同系，保证 grid_map（地图 z 固定
-[-0.5, 1.5]）建图与碰撞检查一致。基准未广播前不发布点云。
+z_align=True（例程 10 EGO 用）：点云 world 减去 pose_to_odom 锁定的
+原点（/drone/ego/origin_ref，兼容 /drone/ego/z_ref），与 odom 同系，
+保证 grid_map（地图 XY 固定约 ±4 m、z 固定 [-0.5, 1.5]）建图与碰撞
+检查一致。原点未广播前不发布点云。
 """
 from __future__ import annotations
 
@@ -104,19 +105,27 @@ class CloudCamToWorld(Node):
         self.declare_parameter('max_points', 8000)
         self.declare_parameter('min_period', 0.2)
         self.declare_parameter('z_align', False)
+        # Stereonet 会把无效视差输出成深度 0 的点。不滤掉的话它们变换后正好落在
+        # 机体所在栅格，EGO 每次规划都报 "the drone is in obstacle" 并放弃。
+        # 双目理论最近距离 fx*base_line/max_disp≈0.14 m，取 0.25 m 留余量。
+        self.declare_parameter('min_depth', 0.25)
+        # 机体附近的点（桨、起落架、无效近视差）膨胀后会盖住起点格子
+        self.declare_parameter('body_clear', 0.35)
         # 无 MAVROS 位姿时用原点单位姿态，保证台架监视也能建 grid_map
         self.pose = (0.0, 0.0, 0.0)
         self.yaw = 0.0
         self._have_mavros_pose = False
         self._last_t = 0.0
         self.z_align = bool(self.get_parameter('z_align').value)
-        self._z0 = None
         inn = self.get_parameter('in_topic').value
         out = self.get_parameter('out_topic').value
         pose_topic = self.get_parameter('pose_topic').value
         self.world_frame = self.get_parameter('world_frame').value
         self.max_points = int(self.get_parameter('max_points').value)
         self.min_period = float(self.get_parameter('min_period').value)
+        self.min_depth = float(self.get_parameter('min_depth').value)
+        self.body_clear = float(self.get_parameter('body_clear').value)
+        self.origin = None  # (x0, y0, z0)
         self.pub = self.create_publisher(PointCloud2, out, _QOS)
         # Stereonet 点云多为 Best Effort，用 sensor QoS 才能稳定收到
         self.create_subscription(
@@ -126,17 +135,29 @@ class CloudCamToWorld(Node):
         if self.z_align:
             self.create_subscription(
                 Float64, '/drone/ego/z_ref', self._on_zref, _LATCHED)
+            self.create_subscription(
+                PoseStamped, '/drone/ego/origin_ref', self._on_origin, _LATCHED)
         self.get_logger().info(
             f'{inn} + pose → {out} ({self.world_frame}) '
             f'max_pts={self.max_points} period>={self.min_period:.2f}s '
+            f'min_depth={self.min_depth:.2f}m body_clear={self.body_clear:.2f}m '
             f'(identity pose until mavros)'
             + (f' z_align=True' if self.z_align else ''))
 
     def _on_zref(self, msg: Float64):
-        """接收 z 对齐基准。"""
-        if self._z0 is None:
-            self._z0 = float(msg.data)
-            self.get_logger().info(f'z 对齐基准 z0={self._z0:.3f}')
+        """旧桥只有 z_ref：记 z0，等 origin_ref；若始终没有则 XY 偏移为 0。"""
+        self._z0_fallback = float(msg.data)
+        if self.origin is None:
+            self.origin = (0.0, 0.0, self._z0_fallback)
+            self.get_logger().info(f'z 对齐基准 z0={self.origin[2]:.3f}（暂无 origin_ref）')
+
+    def _on_origin(self, msg: PoseStamped):
+        """接收 pose_to_odom 锁定的 EGO 原点。"""
+        p = msg.pose.position
+        self.origin = (float(p.x), float(p.y), float(p.z))
+        self.get_logger().info(
+            f'EGO 原点 ({self.origin[0]:.3f},{self.origin[1]:.3f},'
+            f'{self.origin[2]:.3f})')
 
     def _on_pose(self, msg: PoseStamped):
         """缓存最新局部位姿与偏航。"""
@@ -151,9 +172,13 @@ class CloudCamToWorld(Node):
         if now - self._last_t < self.min_period:
             return
         self._last_t = now
-        if self.z_align and self._z0 is None:
-            return  # 等 pose_to_odom 锁定并广播 z 基准，避免建脏图
+        if self.z_align and self.origin is None:
+            return  # 等 pose_to_odom 锁定原点，避免建脏图
         pts = _read_xyz(msg, max_n=self.max_points)
+        if pts.size == 0:
+            return
+        # 丢掉无效视差产生的近距点，否则它们会把机体自身格子标成占据
+        pts = pts[np.isfinite(pts).all(axis=1) & (pts[:, 0] >= self.min_depth)]
         if pts.size == 0:
             return
         # ROS 相机/机体 FLU：x前 y左 z上 → ENU world
@@ -161,11 +186,18 @@ class CloudCamToWorld(Node):
         x_b, y_b, z_b = pts[:, 0], pts[:, 1], pts[:, 2]
         ox, oy, oz = self.pose
         if self.z_align:
-            oz = oz - self._z0
+            ox -= self.origin[0]
+            oy -= self.origin[1]
+            oz -= self.origin[2]
         out = np.empty_like(pts)
         out[:, 0] = c * x_b - s * y_b + ox
         out[:, 1] = s * x_b + c * y_b + oy
         out[:, 2] = z_b + oz
+        if self.body_clear > 0.0:
+            dxy = np.hypot(out[:, 0] - ox, out[:, 1] - oy)
+            out = out[dxy >= self.body_clear]
+            if out.size == 0:
+                return
         header = msg.header
         header.frame_id = self.world_frame
         self.pub.publish(_to_cloud(header, out))
