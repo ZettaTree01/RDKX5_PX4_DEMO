@@ -1494,7 +1494,7 @@ bash /app/zettatree_demo/08_depth_camera/run.sh source:=realsense
 
 #### 启动点云建模（统一入口 `run.sh`）
 
-OpenCV 需板端**桌面终端**（有 `DISPLAY`）。**RViz 默认且必须开启**：SSH 也会自动挂到本机桌面 `:0`。若窗口闪退（板端缺少 `vs-drm_dri.so` 时 Ogre 可能段错误），在同网 PC 用同一 `ROS_DOMAIN_ID` 打开 `08_depth_camera/depth_cloud.rviz`。**只使用** `/app/zettatree_demo/08_depth_camera/run.sh`：
+OpenCV 需板端**桌面终端**（有 `DISPLAY`）。**RViz2 默认且必须开启**：SSH 也会自动挂到本机桌面 `:0`（`_common/rviz_run.sh` 以 sunrise 运行 `rviz2 -d depth_cloud.rviz`）。`Ctrl+C` 立刻停 MIPI / Stereonet / OpenCV / RViz2（本例程不接飞控）。若板端 `rviz2` 因缺少 `vs-drm_dri.so` / Ogre 无法出窗，同网 PC 用同一 `ROS_DOMAIN_ID` 打开 `08_depth_camera/depth_cloud.rviz`。**只使用** `/app/zettatree_demo/08_depth_camera/run.sh`：
 
 | 模式 | 命令 | 说明 |
 |------|------|------|
@@ -1587,7 +1587,8 @@ RViz2 配置（默认模式或 `run.sh rviz`）：
 | Stereonet 无深度话题 | 确认 combine 有 hz；模型 `DStereoV2.4_int16.bin`；本机 TROS 的 `render_type` 是整数 `0`（indoor） |
 | 左目 / YOLO 无图 | 订 `/StereoNetNode/rectified_image`，本机 TROS 不发 `origin_left_image` |
 | `mipi_cam` 退出出现 Aborted | 多为杀进程时析构问题；再跑 `bash .../run.sh` 即可（勿 `pkill -f mipi_cam` 误杀启动脚本） |
-| RViz 无点云 / 非彩色 / 闪退 | Fixed Frame=`camera_link`；Topic=`stereonet_pointcloud2`；Color=`RGB8`。板端闪退时同网 PC：`rviz2 -d .../08_depth_camera/depth_cloud.rviz` |
+| RViz 无点云 / 非彩色 / 闪退 | Fixed Frame=`camera_link`；Topic=`stereonet_pointcloud2`；Color=`RGB8`。板端 `rviz2` 无法出窗时同网 PC：`rviz2 -d .../08_depth_camera/depth_cloud.rviz` |
+| Ctrl+C 停不掉 | `run.sh` 已按进程组清理；另开终端：`bash /app/zettatree_demo/_common/stop_nav_stack.sh` |
 | 点云扇形失真 | 保持 `fx=fy`；勿按高宽比错误缩放 fy |
 | 板端卡顿 | 增大 `POINTCLOUD_DOWNSAMPLE_STEP`；RViz 用软渲染，例程 8/9/10 默认保持开启 |
 
@@ -1614,7 +1615,7 @@ RViz点云图效果：
 | 最优 / A\* Marker | `/optimal_list`、`/a_star_list` |
 | 历史轨迹 | `/drone/nav/path_history` |
 
-Fixed Frame=`world`（`pose_to_odom` 同时广播 `world → camera_link`）。RViz 默认且必须开启；SSH 也会挂到本机桌面 `:0`。
+Fixed Frame=`camera_link`（与例程 8 相同；`pose_to_odom` 同时广播 `world → camera_link`，规划 Marker 在 `world`）。RViz2 默认且必须开启；SSH 也会挂到本机桌面 `:0`。若板端 `rviz2` 无法出窗，同网 PC 打开 `ego_full.rviz`。
 
 控制：`PositionCommand` → `/drone/setpoint_position/local`；深度安全层过近时用机体速度覆盖。
 
@@ -1699,8 +1700,8 @@ MAVROS pose ── pose_to_odom ─────── /odom_world ────�
 |------|------|
 | `未找到完整 EGO 安装` | 先跑 `setup_full_ego.sh`（首次编译约 10–20 分钟） |
 | 编译报 `Duplicate package names` | `EGO_FORCE_CLEAN=1 bash setup_full_ego.sh` 清空重编 |
-| EGO 在跑但无路径 | 确认 `/odom_world`、`/drone/ego/cloud_world` 有数据；RViz Fixed Frame=`world` |
-| RViz 无官方彩色点云 | Fixed Frame=`world`；Topic=`/StereoNetNode/stereonet_pointcloud2`；Color=`RGB8`；确认 `rviz:=true` |
+| EGO 在跑但无路径 | 确认 `/odom_world`、`/drone/ego/cloud_world` 有数据；规划线在 `world` 系 |
+| RViz 无官方彩色点云 | Fixed Frame=`camera_link`；Topic=`/StereoNetNode/stereonet_pointcloud2`；Color=`RGB8`；确认 `rviz:=true`。板端闪退则同网 PC 打开 `ego_full.rviz` |
 | Stereonet **深度全 0** / 无深度 | 先用例程 8 `bash .../08_depth_camera/run.sh` 验证；见 **4.3** 常见问题 |
 | Stereonet 日志 `top is not left image` | mipi 帧序偶发告警，深度仍以约 15 fps 正常发布，可忽略 |
 | EGO 报 `the drone is in obstacle` | 1) 机体前方 1.5 m 内清空；2) `/odom_world` 应在原点附近（原点对齐后）；3) 不要把原始深度接到 `grid_map/depth` |
@@ -1816,7 +1817,7 @@ stereonet_depth ─ 框内中位深度 ─────────────�
 | `ego_planner 包不可用` | `bash 10_target_follow/setup.sh`（复用例程 9 构建） |
 | 检测不稳 | 光照充足；`min_score:=0.2` 放宽（默认 0.25） |
 | 目标短暂丢失就悬停 | 正常设计：1 s 记忆保持，超时回「搜索行人…」 |
-| SSH 下看不到 HUD | OpenCV 无 DISPLAY 时写快照（默认 `/tmp/target_follow_snapshot.jpg`）。RViz 仍会显示在本机 HDMI 桌面 |
+| SSH 下看不到 HUD | OpenCV 无 DISPLAY 时写快照（默认 `/tmp/target_follow_snapshot.jpg`）。RViz2 由 `_common/rviz_run.sh` 显示在本机 HDMI；若 `rviz2` 无法出窗，同网 PC 打开 `target_follow.rviz` |
 
 详见 `/app/zettatree_demo/10_target_follow/README.md`。须先完成例程 8/9；**必须拆桨**。
 

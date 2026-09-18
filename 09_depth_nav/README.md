@@ -11,7 +11,7 @@ Stereonet 点云 → world 点云 → grid_map → ego_planner_node（A*+B样条
                                               ↓
                                     PositionCommand → offboard
 OpenCV：官方深彩 | **3D POINT** 俯视 | 底部状态栏
-RViz2：例程8同款官方彩色点云 + world 点云建模 + 膨胀占据 + EGO 规划 Marker
+RViz2：例程8同款官方彩色点云 + world 点云建模 + 膨胀占据 + EGO 规划 Marker（`rviz2 -d ego_full.rviz`）
 ```
 
 | 层级 | 内容 |
@@ -90,7 +90,7 @@ bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 | OptimalBspline / AStarList | `/optimal_list`、`/a_star_list`（规划路线，frame=`world`） |
 | PathHistory | `/drone/nav/path_history` |
 
-Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 TF 即可显示；规划 Marker 在 `world`，由 `pose_to_odom` 提供 `world→camera_link`）。SSH 启动也会把 RViz 挂到本机桌面 `:0`；若闪退请用同网 PC 打开 `ego_full.rviz`。
+Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 TF 即可显示；规划 Marker 在 `world`，由 `pose_to_odom` 提供 `world→camera_link`）。SSH 启动也会把 RViz2 挂到本机桌面 `:0`（`_common/rviz_run.sh`）。若板端 `rviz2` 无法出窗，同网 PC 打开 `ego_full.rviz`。
 **不必**为建模接入橙色点云：规划建图在后台走 `/drone/ego/cloud_world`，与 RViz 是否显示 inflate 无关。
 
 ## 参数
@@ -99,7 +99,7 @@ Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 
 |------|------|------|
 | （默认） | full | 完整 C++ EGO |
 | `backend:=python` | — | Python A* 同构 |
-| `rviz` | `true` | **必须开启** RViz（官方彩色点云 + OccViz）。SSH 自动挂到本机桌面 `:0` |
+| `rviz` | `true` | **必须开启** RViz2（官方彩色点云 + OccViz）。SSH 自动挂到本机桌面 `:0` |
 | `source` | `stereonet` | 深度源 |
 | `arm` | `false` | 解锁 |
 | `max_vel` | `0.02` | 安全层速度上限 |

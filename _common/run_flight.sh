@@ -7,6 +7,7 @@
 #   # 或仍可直接前台 ros2 launch（兼容旧写法，但 Ctrl+C 可能被 launch 吞掉）
 #
 # 可选：导出 FLIGHT_STOP_STACK=0 跳过视觉/导航杀进程（仅上锁）。
+# 可选：导出 FLIGHT_DISARM=0 跳过串口上锁（例程 8 不接飞控）。
 # 依赖：同目录 stop_nav_stack.sh、emergency_disarm.py。
 
 _DEMO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -42,14 +43,16 @@ _flight_exit_cleanup() {
   # 先停导航/深度/MAVROS，释放 /dev/ttyS2（限时，避免卡死）
   if [ "${FLIGHT_STOP_STACK:-1}" != "0" ]; then
     timeout 8 bash "$_DEMO_ROOT/_common/stop_nav_stack.sh" \
-      >/tmp/zettatree_stop_nav.log 2>&1 || true
+      >/dev/null 2>&1 || true
   else
     sleep 0.3
   fi
 
   # 紧急上锁：严格限时，串口被占时也不要拖住 shell
-  timeout 6 python3 "$_DEMO_ROOT/_common/emergency_disarm.py" \
-    --retries 2 >/tmp/zettatree_disarm.log 2>&1 || true
+  if [ "${FLIGHT_DISARM:-1}" != "0" ]; then
+    timeout 6 python3 "$_DEMO_ROOT/_common/emergency_disarm.py" \
+      --retries 2 >/tmp/zettatree_disarm.log 2>&1 || true
+  fi
 
   echo "[run_flight] 清理结束" >&2
   # INT/TERM 时显式退出，避免 wait 继续挂住

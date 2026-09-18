@@ -43,6 +43,8 @@ _term_then_kill '/ego_planner/traj_server'
 _term_then_kill 'hobot_stereonet/stereonet_model_node'
 _term_then_kill 'stereonet_model_node'
 _term_then_kill 'rviz2 -d /app/zettatree_demo/'
+_term_then_kill '/app/zettatree_demo/_common/rviz_cloud_view.py'
+_term_then_kill '/app/zettatree_demo/_common/rviz_run.sh'
 
 # MAVROS（释放 /dev/ttyS2，便于紧急上锁）
 _term_then_kill '/lib/mavros/mavros_node'
@@ -71,6 +73,8 @@ for pat in \
   'traj_server' \
   'stereonet_model_node' \
   'rviz2 -d /app/zettatree_demo/' \
+  '/app/zettatree_demo/_common/rviz_cloud_view.py' \
+  '/app/zettatree_demo/_common/rviz_run.sh' \
   'mavros_node' \
   '/opt/tros/humble/lib/mipi_cam/mipi_cam' \
   'ros2 run mipi_cam mipi_cam' \

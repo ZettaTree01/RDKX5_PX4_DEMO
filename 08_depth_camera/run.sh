@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
 # 例程8 统一入口（GS130W Stereonet）
 #
-#   bash run.sh                         # 默认：MIPI + Stereonet + OpenCV + RViz
-#   bash run.sh rviz:=false             # 仅调试需要时才关 RViz
+#   bash run.sh                         # 默认：MIPI + Stereonet + OpenCV + RViz2
+#   bash run.sh rviz:=false             # 仅调试需要时才关 RViz2
 #   bash run.sh views                   # 分窗左右目 / 深彩 / 深度
 #   bash run.sh views --no-depth --no-visual
 #   bash run.sh views start_stereo:=0   # 只要左右目，不拉 Stereonet
-#   bash run.sh rviz                    # 仅开 RViz（需另终端已跑默认模式）
+#   bash run.sh rviz                    # 仅开 RViz2（需另终端已跑默认模式）
 #   bash run.sh source:=simulate start_stereonet:=false
 #
 # 其余 key:=value 透传给 depth_camera.launch.py。
+# Ctrl+C：杀 launch 进程组 + MIPI/Stereonet/OpenCV/RViz2（本例程不接飞控、不上锁）。
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 source /app/zettatree_demo/_common/env.sh
+# shellcheck disable=SC1091
+source /app/zettatree_demo/_common/run_flight.sh
+
+# 例程8不接飞控：Ctrl+C 只停视觉栈
+export FLIGHT_DISARM=0
 
 MODE=full
 ARGS=()
@@ -24,7 +30,7 @@ for a in "$@"; do
       MODE=views
       ;;
     rviz|mode:=rviz|rviz_only)
-      # 单独「仅 RViz」；若写作 rviz:=false/true 则留给 launch
+      # 单独「仅 RViz2」；若写作 rviz:=false/true 则留给 launch
       if [[ "$a" == rviz:=* ]]; then
         ARGS+=("$a")
       else
@@ -65,28 +71,6 @@ _prepare_log() {
   fi
 }
 
-_stop_stale_08() {
-  echo "[08] 停止已有 MIPI / Stereonet / OpenCV / RViz ..."
-  pkill -TERM -f '/app/zettatree_demo/08_depth_camera/depth_camera.launch.py' 2>/dev/null || true
-  pkill -TERM -f '/app/zettatree_demo/08_depth_camera/depth_pointcloud.py' 2>/dev/null || true
-  pkill -TERM -f '/app/zettatree_demo/08_depth_camera/pub_stereo_caminfo.py' 2>/dev/null || true
-  pkill -TERM -f '/app/zettatree_demo/08_depth_camera/show_stereo_views.py' 2>/dev/null || true
-  pkill -TERM -f '/opt/tros/humble/lib/hobot_stereonet/stereonet_model_node' 2>/dev/null || true
-  sudo -n pkill -TERM -f '/opt/tros/humble/lib/hobot_stereonet/stereonet_model_node' 2>/dev/null || true
-  pkill -TERM -f 'rviz2 -d /app/zettatree_demo/08_depth_camera/depth_cloud.rviz' 2>/dev/null || true
-  for p in $(pgrep -f '/opt/tros/humble/lib/mipi_cam/mipi_cam' || true); do
-    kill -TERM "$p" 2>/dev/null || sudo -n kill -TERM "$p" 2>/dev/null || true
-  done
-  pkill -TERM -f 'ros2 run mipi_cam mipi_cam' 2>/dev/null || true
-  sleep 1
-  pkill -9 -f '/app/zettatree_demo/08_depth_camera/depth_pointcloud.py' 2>/dev/null || true
-  pkill -9 -f '/opt/tros/humble/lib/hobot_stereonet/stereonet_model_node' 2>/dev/null || true
-  for p in $(pgrep -f '/opt/tros/humble/lib/mipi_cam/mipi_cam' || true); do
-    kill -9 "$p" 2>/dev/null || true
-  done
-  pkill -9 -f 'ros2 run mipi_cam mipi_cam' 2>/dev/null || true
-}
-
 _setup_gl() {
   if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
     if [ ! -e /usr/lib/aarch64-linux-gnu/dri/vs-drm_dri.so ] \
@@ -101,7 +85,7 @@ _setup_gl() {
 
 _warn_display() {
   if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
-    echo "[08] 未设置 DISPLAY：OpenCV 可能无窗；RViz 会自动挂到本机桌面 :0。"
+    echo "[08] 未设置 DISPLAY：OpenCV 可能无窗；RViz2 会自动挂到本机桌面 :0。"
   fi
 }
 
@@ -114,15 +98,23 @@ _wait_combine() {
   done
 }
 
+_stop_stale_08() {
+  echo "[08] 停止已有 MIPI / Stereonet / OpenCV / RViz2 ..."
+  timeout 8 bash /app/zettatree_demo/_common/stop_nav_stack.sh \
+    >/dev/null 2>&1 || true
+}
+
 run_full() {
   _prepare_log
   _setup_gl
   _stop_stale_08
   _warn_display
-  echo "[08] 模式=full：双目 → Depth → OpenCV(深彩|3D POINT) + RViz"
+  echo "[08] 模式=full：双目 → Depth → OpenCV(深彩|3D POINT) + RViz2"
+  echo "[08] Ctrl+C 将停止 MIPI / Stereonet / OpenCV / RViz2（本例程不上锁）"
   bash "$SCRIPT_DIR/ensure_mipi_bpu.sh"
   _wait_combine
-  exec ros2 launch "$SCRIPT_DIR/depth_camera.launch.py" \
+  # 勿 exec ros2 launch：launch 会吞掉 SIGINT，MIPI 又是 nohup，Ctrl+C 停不掉
+  _flight_run ros2 launch "$SCRIPT_DIR/depth_camera.launch.py" \
     source:=stereonet start_mipi:=false start_stereonet:=true \
     show:=true rviz:=true map:=false panel_mode:=depth_cloud \
     baseline_m:=0.07917 rotate_cw:=0 \
@@ -134,7 +126,7 @@ run_full() {
 run_views() {
   _prepare_log
   _warn_display
-  echo "[08] 模式=views：分窗 LEFT / RIGHT / VISUAL / DEPTH（q 退出）"
+  echo "[08] 模式=views：分窗 LEFT / RIGHT / VISUAL / DEPTH（q 或 Ctrl+C 退出）"
   bash "$SCRIPT_DIR/ensure_mipi_bpu.sh"
   if ! ros2 topic list 2>/dev/null | grep -qx '/StereoNetNode/stereonet_visual'; then
     if [ "${START_STEREO:-1}" = "1" ]; then
@@ -149,7 +141,7 @@ run_views() {
       done
     fi
   fi
-  exec python3 "$SCRIPT_DIR/show_stereo_views.py" "${ARGS[@]}"
+  _flight_run python3 "$SCRIPT_DIR/show_stereo_views.py" "${ARGS[@]}"
 }
 
 run_rviz_only() {
@@ -160,9 +152,11 @@ run_rviz_only() {
     echo "[08] missing $CFG" >&2
     exit 1
   fi
-  echo "[08] 模式=rviz：Fixed Frame=camera_link"
+  echo "[08] 模式=rviz：Fixed Frame=camera_link，rviz2 -d depth_cloud.rviz"
   echo "[08] Topic=/StereoNetNode/stereonet_pointcloud2（请另开: bash .../run.sh）"
-  exec bash "$SCRIPT_DIR/../_common/rviz_run.sh" "$CFG"
+  # 仅关本窗口，不要 stop_nav 把另一终端的 MIPI/Stereonet 一起杀掉
+  export FLIGHT_STOP_STACK=0
+  _flight_run bash "$SCRIPT_DIR/../_common/rviz_run.sh" "$CFG"
 }
 
 case "$MODE" in
