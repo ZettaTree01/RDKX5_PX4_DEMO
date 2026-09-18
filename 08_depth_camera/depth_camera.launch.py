@@ -247,7 +247,7 @@ def generate_launch_description():
         DeclareLaunchArgument('snapshot', default_value='none'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='默认 true：必须开 RViz。SSH 也会挂到本机桌面 :0；仅无图形会话时跳过'),
+            description='默认开启 RViz2。SSH 无 DISPLAY 时显示到本机桌面 :0；无图形会话时跳过'),
         DeclareLaunchArgument(
             'map', default_value='false',
             description='独立 pointcloud_map 节点；默认 false（已由 depth_pointcloud 内建）'),

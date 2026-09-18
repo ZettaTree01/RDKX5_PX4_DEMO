@@ -39,7 +39,7 @@ YOLO 行人框（`/StereoNetNode/rectified_image`）→ 深度取 3D → 计算 
         ↓
  /move_base_simple/goal  →  EGO（避障 B 样条）→ traj_server → OFFBOARD
 OpenCV：检测画面（行人框）| 三维俯视（N=初始机头）| 底部中文状态栏
-RViz2：例程8同款（Fixed Frame=`camera_link` + 官方彩色点云，`rviz2 -d target_follow.rviz`）+ EGO 规划 Marker + 跟随连线/目标点
+RViz2：例程8同款（Fixed Frame=`camera_link` + 官方彩色点云）+ EGO 规划路径 + 跟随连线/目标点
 ```
 
 | 层级 | 内容 |
@@ -47,7 +47,7 @@ RViz2：例程8同款（Fixed Frame=`camera_link` + 官方彩色点云，`rviz2 
 | 感知 | Stereonet 深度 + BPU YOLO（COCO `person`，限频 5 Hz，目标丢失 1 s 记忆保持） |
 | 规划 | 完整 C++ EGO `flight_type=MANUAL_TARGET`（建图参数同例程 9），目标点周期发布到 `/move_base_simple/goal`，依赖例程 9 的动态目标重规划补丁 |
 | 对照 | `planner:=direct` 直接位置跟随（无需编 EGO） |
-| OpenCV | 检测画面（行人框）+ 三维俯视（航迹；机体→跟随点→目标连线；「人」/「跟」中文标记）+ 底部中文状态栏（阶段/速度/高度/目标距离/七扇区距离） |
+| OpenCV | 检测画面（行人框）+ 三维俯视（航迹 + EGO 规划路径；「人」/「跟」标记）+ 底部中文状态栏 |
 
 室内默认 `bench:=true`。**必须拆桨**。
 
@@ -90,7 +90,7 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 | `min_score` | `0.25` | YOLO person 置信度阈值（与例程 04 同默认） |
 | `show` | `true` | OpenCV HUD 窗口；无 DISPLAY 自动改写快照 |
 | `snapshot` | 空 | 无显示器时的 JPEG 快照路径 |
-| `rviz` | `true` | **必须开启** RViz2（例程8点云 + 规划路线）。SSH 自动挂到本机桌面 `:0` |
+| `rviz` | `true` | 开启 RViz2（点云 + 规划路径）。SSH 自动显示到本机桌面 `:0` |
 
 ## 话题说明
 
@@ -102,8 +102,9 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 | `/drone/follow/target` | 行人 3D（world，z 已对齐） |
 | `/drone/follow/goal` | 跟随点（world） |
 | `/drone/follow/link` | 机体→跟随点→行人连线（RViz Marker） |
-| `/optimal_list` / `/a_star_list` | EGO 规划路线 |
-| `/drone/nav/path_history` | 历史航迹（world） |
+| `/optimal_list` / `/a_star_list` | EGO 规划 Marker |
+| `/drone/nav/path_plan` | 规划路径（由 `/optimal_list` 转发） |
+| `/drone/nav/path_history` | 已飞航迹（world） |
 | `/grid_map/occupancy_inflate` | EGO 膨胀占据 |
 | `/StereoNetNode/stereonet_pointcloud2` | 例程8同款彩色点云 |
 
@@ -119,10 +120,10 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 | 检测不到行人 | 人站在镜头前 0.5–5 m、光照充足；确认订阅 `/StereoNetNode/rectified_image`（本机不发 `origin_left_image`）；可把 `min_score:=0.2` |
 | EGO 报 `the drone is in obstacle` / 无 `position_cmd` | 1) 机体前方约 1.5 m 内不要有椅子桌沿；2) 确认 `/odom_world` 在地图内（原点对齐后应接近 0,0,0）；3) 点云桥已滤 `min_depth=0.25` 与机体清空半径 |
 | 目标短暂丢失就停 | 正常：约 1 s 记忆，超时后悬停并继续搜索 |
-| HUD 无窗口 | 无 DISPLAY 时 OpenCV 写快照 `/tmp/target_follow_snapshot.jpg`。RViz2 由 `_common/rviz_run.sh` 挂到 HDMI；若板端 `rviz2` 无法出窗，同网 PC 打开 `target_follow.rviz` |
-| RViz 只有橙点/无彩色点云 | Fixed Frame 应为 `camera_link`；GridMapInflate 默认已关，确认 stereonet_pointcloud2 已勾选后重跑 |
-| Ctrl+C 退不出 | 应立刻杀栈；仍挂住时另开终端：`bash /app/zettatree_demo/_common/stop_nav_stack.sh` |
-| 有点云无规划线 | 需检出到行人并下发 goal；确认 Displays 勾选 OptimalBspline / FollowLink |
+| HUD 无窗口 | 无 DISPLAY 时 OpenCV 写快照 `/tmp/target_follow_snapshot.jpg`。RViz2 显示在本机 HDMI；同网开发机可打开 `target_follow.rviz` |
+| RViz 无彩色点云 | Fixed Frame 应为 `camera_link`；确认 stereonet_pointcloud2 已勾选 |
+| 停止后仍有进程 | `bash /app/zettatree_demo/_common/stop_nav_stack.sh` |
+| 有点云无规划线 | 需检出到行人并下发 goal；RViz 勾选 OptimalBspline / EgoPlan |
 
 ```bash
 source /opt/tros/humble/setup.bash

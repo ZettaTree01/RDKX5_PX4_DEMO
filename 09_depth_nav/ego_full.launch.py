@@ -325,7 +325,7 @@ def generate_launch_description():
         DeclareLaunchArgument('show', default_value='true'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='默认 true：必须开 RViz（官方点云 + OccViz）。SSH 也会挂到本机桌面 :0'),
+            description='默认开启 RViz2（官方点云 + 规划路径）。SSH 无 DISPLAY 时显示到本机桌面 :0'),
         DeclareLaunchArgument('max_vel', default_value=INDOOR_MAX_VEL),
         DeclareLaunchArgument('safe_distance', default_value='1.2'),
         DeclareLaunchArgument('stop_distance', default_value='0.45'),

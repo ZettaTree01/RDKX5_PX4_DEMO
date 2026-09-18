@@ -4,7 +4,7 @@
 默认对接例程 8：GS130W + hobot_stereonet（BPU）。
 - 完整 C++ EGO：control-mode=safety（位姿由 traj_server 控；过近时速度覆盖）
 - Python 对照：control-mode=follow（跟 /drone/ego/cmd_vel）
-- OpenCV：官方 stereonet_visual | 俯视点云 + 轨迹（初始机头方向 = 屏幕上方 N）
+- OpenCV：官方 stereonet_visual | 俯视点云 + 航迹 + EGO 规划路径（初始机头方向 = 屏幕上方 N）
 - 状态栏：扇区距离/阶段/位移/速度/高度集中在画面底部，中文显示（PIL 渲染）
 - 位移指示：机体 FLU 前/后/左/右/上升/下降
 设定点只发给 OFFBOARD 管理器。
@@ -22,12 +22,14 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
-    HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data)
+    DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy,
+    qos_profile_sensor_data)
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State
 from nav_msgs.msg import Path
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2
 from std_msgs.msg import Bool, Header
+from visualization_msgs.msg import Marker
 from cv_bridge import CvBridge
 
 sys.path.insert(0, os.path.join(
@@ -46,6 +48,9 @@ _QOS_STEREO = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     history=HistoryPolicy.KEEP_LAST,
     depth=5)
+_QOS_LATCHED = QoSProfile(
+    depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    reliability=ReliabilityPolicy.RELIABLE)
 
 # GS130W @ 640x352（与例程 8 一致）
 GS_FX, GS_FY = 328.379, 328.379
@@ -209,6 +214,8 @@ class DepthNavNode(Node):
         self.wp_idx = 0
         self.trail = []
         self._last_trail_t = 0.0
+        self._origin = None
+        self._ego_plan_xy = []
         self._rel_alt = RelAlt()
         self.rel_alt_m = 0.0
         self.phase = '等待起飞'
@@ -250,6 +257,9 @@ class DepthNavNode(Node):
         self.plan_pub = self.create_publisher(Path, '/drone/nav/path_plan', 1)
         self.ego_goal_pub = self.create_publisher(
             PoseStamped, '/drone/ego/goal', 1)
+        self.create_subscription(
+            PoseStamped, '/drone/ego/origin_ref', self._on_origin, _QOS_LATCHED)
+        self.create_subscription(Marker, '/optimal_list', self._on_ego_plan, 10)
 
         self.create_subscription(
             Bool, '/drone/status/airborne',
@@ -439,20 +449,53 @@ class DepthNavNode(Node):
         now = time.monotonic()
         if self.airborne and now - self._last_trail_t > 0.2:
             self._last_trail_t = now
+            ex, ey, _ez = self._ego_xyz(self.pose)
             if (not self.trail or
-                    math.hypot(self.trail[-1][0] - p.x,
-                               self.trail[-1][1] - p.y) > 0.02):
-                self.trail.append((float(p.x), float(p.y)))
+                    math.hypot(self.trail[-1][0] - ex,
+                               self.trail[-1][1] - ey) > 0.02):
+                self.trail.append((ex, ey))
                 if len(self.trail) > 2000:
                     self.trail = self.trail[-2000:]
                 self._publish_history_path()
+
+    def _ego_xyz(self, xyz):
+        """MAVROS local → EGO/world（与 pose_to_odom 原点对齐）。"""
+        x, y, z = float(xyz[0]), float(xyz[1]), float(xyz[2])
+        if self._origin is None:
+            return (x, y, z)
+        ox, oy, oz = self._origin
+        return (x - ox, y - oy, z - oz)
+
+    def _on_origin(self, msg: PoseStamped):
+        """锁定 EGO 原点，使规划路径与俯视航迹同一坐标系。"""
+        p = msg.pose.position
+        self._origin = (float(p.x), float(p.y), float(p.z))
+
+    def _on_ego_plan(self, msg: Marker):
+        """订阅 EGO /optimal_list，转发为 Path 并供 OpenCV 俯视绘制。"""
+        if not msg.points:
+            return
+        self._ego_plan_xy = [(float(p.x), float(p.y)) for p in msg.points]
+        path = Path()
+        path.header = Header()
+        path.header.stamp = self.get_clock().now().to_msg()
+        path.header.frame_id = msg.header.frame_id or 'world'
+        for p in msg.points:
+            ps = PoseStamped()
+            ps.header = path.header
+            ps.pose.position.x = float(p.x)
+            ps.pose.position.y = float(p.y)
+            ps.pose.position.z = float(p.z)
+            ps.pose.orientation.w = 1.0
+            path.poses.append(ps)
+        self.plan_pub.publish(path)
 
     def _publish_history_path(self):
         """发布飞过轨迹 Path，供 RViz/OpenCV。"""
         path = Path()
         path.header = Header()
         path.header.stamp = self.get_clock().now().to_msg()
-        path.header.frame_id = 'map'
+        path.header.frame_id = 'world'
         z = self.pose[2] if self.pose else 0.0
         for x, y in self.trail:
             ps = PoseStamped()
@@ -476,16 +519,18 @@ class DepthNavNode(Node):
         ]
         plan = Path()
         plan.header.stamp = self.get_clock().now().to_msg()
-        plan.header.frame_id = 'map'
+        plan.header.frame_id = 'world'
         for x, y, z in self.waypoints:
             ps = PoseStamped()
             ps.header = plan.header
-            ps.pose.position.x = x
-            ps.pose.position.y = y
-            ps.pose.position.z = z
+            wx, wy, wz = self._ego_xyz((x, y, z))
+            ps.pose.position.x = wx
+            ps.pose.position.y = wy
+            ps.pose.position.z = wz
             ps.pose.orientation.w = 1.0
             plan.poses.append(ps)
-        self.plan_pub.publish(plan)
+        if self.control_mode not in ('viz', 'safety', 'full_ego'):
+            self.plan_pub.publish(plan)
 
     def _band_median(self, depth_m: np.ndarray, x0, x1, y0, y1) -> float | None:
         """保留兼容；主路径已改用 ego_depth_avoid 多扇区。"""
@@ -677,15 +722,17 @@ class DepthNavNode(Node):
                 min_range=self.min_range, color_bgr=color)
 
         planned = None
-        if self.waypoints:
-            planned = [(p[0], p[1]) for p in self.waypoints[self.wp_idx:]]
-            if self.pose:
-                planned = [(self.pose[0], self.pose[1])] + planned
+        if len(self._ego_plan_xy) >= 2:
+            planned = list(self._ego_plan_xy)
+        elif self.waypoints:
+            rest = [self._ego_xyz(p)[:2] for p in self.waypoints[self.wp_idx:]]
+            planned = ([self._ego_xyz(self.pose)[:2]] + rest) if self.pose else rest
+        pose_enu = self._ego_xyz(self.pose) if self.pose else None
         panel = render_modeling_panel(
             depth, pts, color_bgr=color,
             trail_enu=self.trail,
             planned_enu=planned,
-            pose_enu=self.pose,
+            pose_enu=pose_enu,
             yaw=self.yaw,
             north_yaw=self._north_yaw,
             title='',  # 深彩画面不再叠标题；信息集中在底部状态栏

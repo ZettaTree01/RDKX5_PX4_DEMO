@@ -2,7 +2,7 @@
 # 例程8 统一入口（GS130W Stereonet）
 #
 #   bash run.sh                         # 默认：MIPI + Stereonet + OpenCV + RViz2
-#   bash run.sh rviz:=false             # 仅调试需要时才关 RViz2
+#   bash run.sh rviz:=false             # 关闭 RViz2
 #   bash run.sh views                   # 分窗左右目 / 深彩 / 深度
 #   bash run.sh views --no-depth --no-visual
 #   bash run.sh views start_stereo:=0   # 只要左右目，不拉 Stereonet
@@ -10,7 +10,7 @@
 #   bash run.sh source:=simulate start_stereonet:=false
 #
 # 其余 key:=value 透传给 depth_camera.launch.py。
-# Ctrl+C：杀 launch 进程组 + MIPI/Stereonet/OpenCV/RViz2（本例程不接飞控、不上锁）。
+# Ctrl+C 停止本例程（MIPI / Stereonet / OpenCV / RViz2；不接飞控、不上锁）。
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
@@ -110,10 +110,10 @@ run_full() {
   _stop_stale_08
   _warn_display
   echo "[08] 模式=full：双目 → Depth → OpenCV(深彩|3D POINT) + RViz2"
-  echo "[08] Ctrl+C 将停止 MIPI / Stereonet / OpenCV / RViz2（本例程不上锁）"
+  echo "[08] Ctrl+C 停止 MIPI / Stereonet / OpenCV / RViz2（本例程不上锁）"
   bash "$SCRIPT_DIR/ensure_mipi_bpu.sh"
   _wait_combine
-  # 勿 exec ros2 launch：launch 会吞掉 SIGINT，MIPI 又是 nohup，Ctrl+C 停不掉
+  # 前台可中断（_flight_run）；MIPI 由 ensure 拉起，退出时 stop_nav 回收
   _flight_run ros2 launch "$SCRIPT_DIR/depth_camera.launch.py" \
     source:=stereonet start_mipi:=false start_stereonet:=true \
     show:=true rviz:=true map:=false panel_mode:=depth_cloud \

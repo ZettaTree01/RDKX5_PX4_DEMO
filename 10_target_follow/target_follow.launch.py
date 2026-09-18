@@ -329,7 +329,7 @@ def generate_launch_description():
             description='ego=完整EGO(/move_base_simple/goal)；direct=位置直跟'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='默认 true：必须开 RViz（例程8点云 + 规划/跟随）。SSH 也会挂到本机桌面 :0'),
+            description='默认开启 RViz2（点云 + 规划路径）。SSH 无 DISPLAY 时显示到本机桌面 :0'),
         DeclareLaunchArgument('standoff', default_value='0.8'),
         DeclareLaunchArgument('follow_z', default_value=INDOOR_ALT),
         DeclareLaunchArgument('max_vel', default_value=INDOOR_MAX_VEL),

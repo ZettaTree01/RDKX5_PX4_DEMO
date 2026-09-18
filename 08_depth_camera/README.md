@@ -22,7 +22,7 @@ bash /app/zettatree_demo/08_depth_camera/run.sh
 | 命令 | 说明 |
 |------|------|
 | `bash run.sh` | MIPI → Stereonet → OpenCV + **RViz2（默认开启）** |
-| `bash run.sh rviz:=false` | 仅调试需要时才关 RViz2 |
+| `bash run.sh rviz:=false` | 关闭 RViz2 |
 | `bash run.sh views` | 分窗：LEFT / RIGHT / VISUAL / DEPTH |
 | `bash run.sh rviz` | 仅开 RViz2（需另终端已跑默认模式） |
 | `bash run.sh source:=simulate start_stereonet:=false` | 无相机，验证软件 |
@@ -34,15 +34,13 @@ bash /app/zettatree_demo/08_depth_camera/run.sh
 | OpenCV 右 | 当前帧俯视点云（`panel_mode:=depth` 可关掉） |
 | RViz2 | `/StereoNetNode/stereonet_pointcloud2`，Fixed Frame=`camera_link` |
 
-OpenCV 需桌面终端（有 `DISPLAY`）。**RViz2 默认开启**：SSH 也会自动挂到本机桌面 `:0`（以 sunrise 运行 `rviz2 -d depth_cloud.rviz`）。例程 8/9/10 共用 `_common/rviz_run.sh`。
+OpenCV 需桌面终端（有 `DISPLAY`）。**RViz2 默认开启**：SSH 启动同样显示到本机桌面 `:0`。例程 8/9/10 共用 `_common/rviz_run.sh`。同网开发机可用同一 `ROS_DOMAIN_ID` 打开 `depth_cloud.rviz`。
 
-`Ctrl+C` 会立刻停 MIPI / Stereonet / OpenCV / RViz2（本例程不接飞控、不上锁）。若仍有残留：
+`Ctrl+C` 停止 MIPI / Stereonet / OpenCV / RViz2（本例程不接飞控、不上锁）。若需手动停栈：
 
 ```bash
 bash /app/zettatree_demo/_common/stop_nav_stack.sh
 ```
-
-若板端 `rviz2` 因缺少 `vs-drm` / Ogre 无法出窗，同网 PC 用同一 `ROS_DOMAIN_ID` 打开 `depth_cloud.rviz`；板端 OpenCV 深彩 | 3D POINT 仍可看深度。
 
 ## 目录结构
 
@@ -100,7 +98,7 @@ ros2 topic hz /StereoNetNode/stereonet_pointcloud2
 | 参数 | 默认 | 说明 |
 |------|------|------|
 | `source` | `stereonet` | `stereonet` / `simulate` / `orbbec` / `realsense` |
-| `rviz` | `true` | **必须开启** RViz2。SSH 无 DISPLAY 时自动挂到本机桌面 `:0` |
+| `rviz` | `true` | 开启 RViz2。SSH 无 DISPLAY 时自动显示到本机桌面 `:0` |
 | `show` | `true` | OpenCV 窗口 |
 | `start_stereonet` | `true` | 是否拉起 BPU Stereonet |
 | `baseline_m` | `0.07917` | 基线（米） |
@@ -130,5 +128,4 @@ bash /app/zettatree_demo/08_depth_camera/run.sh \
 | 深度整体缩小上千倍 / 点云挤在机体旁 | Stereonet 参数名必须是 `base_line`、`postprocess`（V2.4 用 `v2.3`），写错会静默用 C++ 默认 |
 | 校正后画面大面积变黑 | `need_rectify` 必须 `false`：GS130W 出图已经过 GDC 校正 |
 | YOLO / 左目无图 | 订 `/StereoNetNode/rectified_image`，本机 TROS 不发 `origin_left_image` |
-| SSH 下看不到 RViz2 | 已自动挂到本机桌面 `:0`（以 sunrise 运行）。接 HDMI 即可看到；root 不要直接 `rviz2`。若板端 `rviz2` 闪退，同网 PC：`rviz2 -d /app/zettatree_demo/08_depth_camera/depth_cloud.rviz` |
-| Ctrl+C 停不掉 | `run.sh` 已用进程组清理；另开终端：`bash /app/zettatree_demo/_common/stop_nav_stack.sh` |
+| SSH 下看不到 RViz2 | 接 HDMI；SSH 启动会自动显示到本机桌面 `:0` |

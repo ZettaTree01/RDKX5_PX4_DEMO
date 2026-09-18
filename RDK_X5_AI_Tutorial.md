@@ -1418,14 +1418,14 @@ launch 参数 `show` 默认 `true`：左上角显示高度与阶段（`等待起
 
 ### 任务说明
 
-> **本节说明**（`08_depth_camera`）：默认使用 **RDK 官方 GS130W MIPI 双目**（双 SC132GS，基线约 80 mm）+ **`hobot_stereonet`（BPU，DStereo V2.4 int16）** 输出深度与彩色点云。板端 OpenCV 默认显示「官方深彩 | **3D POINT** 俯视」；**RViz 必须开启**，订阅官方稠密点云（Fixed Frame=`camera_link`，Color=`RGB8`）。SSH 也会把 RViz 挂到本机桌面 `:0`（以 sunrise 运行）。无双目时可 `source:=simulate` 验证软件；亦可改用 USB Orbbec / RealSense（`source:=orbbec` / `realsense`）。
+> **本节说明**（`08_depth_camera`）：默认使用 **RDK 官方 GS130W MIPI 双目**（双 SC132GS，基线约 80 mm）+ **`hobot_stereonet`（BPU，DStereo V2.4 int16）** 输出深度与彩色点云。板端 OpenCV 默认显示「官方深彩 | **3D POINT** 俯视」；**RViz2 默认开启**，订阅官方稠密点云（Fixed Frame=`camera_link`，Color=`RGB8`）。SSH 启动同样显示到本机 HDMI 桌面。无双目时可 `source:=simulate` 验证软件；亦可改用 USB Orbbec / RealSense（`source:=orbbec` / `realsense`）。
 >
 > **本节目标**：
 >
 > - 完成 GS130W 接线与 MIPI dual 启动确认（可用 `run.sh views` 分窗看左右目）；
 > - 用统一入口 `run.sh` 启动 Stereonet，确认 `stereonet_depth` / `stereonet_visual` / `stereonet_pointcloud2` 有数据且深度非全 0；
 > - 理解视差→深度→点云反投影，以及 OpenCV「3D POINT」与 RViz 官方彩色点云；
-> - OpenCV 需桌面终端；RViz 在 SSH 下也会显示到本机 HDMI 桌面。
+> - OpenCV 需桌面终端；RViz2 在 SSH 下也会显示到本机 HDMI 桌面。
 
 配套例程：`/app/zettatree_demo/08_depth_camera`。本例程**不接飞控**。目录内 **仅一个用户启动脚本 `run.sh`**（`views` / `rviz` 为子模式）；`ensure_mipi_bpu.sh`、`start_stereonet.sh`、`pub_stereo_caminfo.py` 供本例程与例程 9/10 复用，一般不必单独调用。
 
@@ -1494,7 +1494,7 @@ bash /app/zettatree_demo/08_depth_camera/run.sh source:=realsense
 
 #### 启动点云建模（统一入口 `run.sh`）
 
-OpenCV 需板端**桌面终端**（有 `DISPLAY`）。**RViz2 默认且必须开启**：SSH 也会自动挂到本机桌面 `:0`（`_common/rviz_run.sh` 以 sunrise 运行 `rviz2 -d depth_cloud.rviz`）。`Ctrl+C` 立刻停 MIPI / Stereonet / OpenCV / RViz2（本例程不接飞控）。若板端 `rviz2` 因缺少 `vs-drm_dri.so` / Ogre 无法出窗，同网 PC 用同一 `ROS_DOMAIN_ID` 打开 `08_depth_camera/depth_cloud.rviz`。**只使用** `/app/zettatree_demo/08_depth_camera/run.sh`：
+OpenCV 需板端**桌面终端**（有 `DISPLAY`）。**RViz2 默认开启**：SSH 启动同样显示到本机桌面 `:0`。`Ctrl+C` 停止 MIPI / Stereonet / OpenCV / RViz2（本例程不接飞控）。同网开发机可用同一 `ROS_DOMAIN_ID` 打开 `08_depth_camera/depth_cloud.rviz`。**只使用** `/app/zettatree_demo/08_depth_camera/run.sh`：
 
 | 模式 | 命令 | 说明 |
 |------|------|------|
@@ -1554,7 +1554,7 @@ RViz2 配置（默认模式或 `run.sh rviz`）：
 | Size (m) | 0.02（例程配置；官方示意常用 0.01） |
 | Color Transformer | RGB8 |
 
-同网 PC 也可 `rviz2 -d /app/zettatree_demo/08_depth_camera/depth_cloud.rviz`（需同一 `ROS_DOMAIN_ID`），或板端 `bash .../run.sh rviz`。
+同网开发机也可 `rviz2 -d /app/zettatree_demo/08_depth_camera/depth_cloud.rviz`（需同一 `ROS_DOMAIN_ID`），或板端 `bash .../run.sh rviz`。
 
 点云密度由环境变量 `POINTCLOUD_DOWNSAMPLE_STEP` 控制（例程默认 **2**，兼顾帧率；要更密可设 `1`）。
 
@@ -1569,7 +1569,7 @@ RViz2 配置（默认模式或 `run.sh rviz`）：
 | 启动参数（透传给 launch） | 默认 | 说明 |
 |----------|------|------|
 | `source` | `stereonet` | `stereonet` / `simulate` / `orbbec` / `realsense` |
-| `rviz` | `true` | **必须开启** RViz。SSH 无 DISPLAY 时自动挂到本机桌面 `:0`（`run.sh rviz` 为「仅 RViz」子模式，勿与本参数混淆） |
+| `rviz` | `true` | 开启 RViz2。SSH 无 DISPLAY 时自动显示到本机桌面 `:0`（`run.sh rviz` 为「仅 RViz2」子模式，勿与本参数混淆） |
 | `show` | `true` | OpenCV 深彩 \| 3D POINT 俯视 |
 | `start_stereonet` | `true` | 是否拉起 BPU Stereonet |
 | `baseline_m` | `0.07917` | 基线（米） |
@@ -1587,8 +1587,7 @@ RViz2 配置（默认模式或 `run.sh rviz`）：
 | Stereonet 无深度话题 | 确认 combine 有 hz；模型 `DStereoV2.4_int16.bin`；本机 TROS 的 `render_type` 是整数 `0`（indoor） |
 | 左目 / YOLO 无图 | 订 `/StereoNetNode/rectified_image`，本机 TROS 不发 `origin_left_image` |
 | `mipi_cam` 退出出现 Aborted | 多为杀进程时析构问题；再跑 `bash .../run.sh` 即可（勿 `pkill -f mipi_cam` 误杀启动脚本） |
-| RViz 无点云 / 非彩色 / 闪退 | Fixed Frame=`camera_link`；Topic=`stereonet_pointcloud2`；Color=`RGB8`。板端 `rviz2` 无法出窗时同网 PC：`rviz2 -d .../08_depth_camera/depth_cloud.rviz` |
-| Ctrl+C 停不掉 | `run.sh` 已按进程组清理；另开终端：`bash /app/zettatree_demo/_common/stop_nav_stack.sh` |
+| RViz 无点云 / 非彩色 | Fixed Frame=`camera_link`；Topic=`stereonet_pointcloud2`；Color=`RGB8`。同网开发机：`rviz2 -d .../08_depth_camera/depth_cloud.rviz` |
 | 点云扇形失真 | 保持 `fx=fy`；勿按高宽比错误缩放 fy |
 | 板端卡顿 | 增大 `POINTCLOUD_DOWNSAMPLE_STEP`；RViz 用软渲染，例程 8/9/10 默认保持开启 |
 
@@ -1604,7 +1603,7 @@ RViz点云图效果：
 
 **OpenCV**：深彩画面干净无叠加（数值一律不压图）| 三维俯视（初始机头方向即 N，朝屏幕上方）+ 航迹/规划路径，机体红点/机头箭头带净空底衬不被点云遮挡；七扇区距离（红/橙/绿 = 急停/绕行/自由）、阶段、位移、速度、高度等数值集中在画面**底部状态栏**分四行中文显示。
 
-**RViz2（完整 EGO）**：与例程 8 对齐，默认订阅官方彩色点云与深彩图，并叠加占据栅格与规划 Marker。
+**RViz2（完整 EGO）**：与例程 8 对齐，默认订阅官方彩色点云与深彩图，并叠加 EGO 规划路径（`/optimal_list`、`/drone/nav/path_plan`）与已飞航迹。
 
 | 显示 | 话题 |
 |------|------|
@@ -1612,10 +1611,11 @@ RViz点云图效果：
 | stereonet_pointcloud2 | `/StereoNetNode/stereonet_pointcloud2`（Color=`RGB8`） |
 | OccViz / 世界点云抽稀 | `/drone/ego/occ_viz` 等（以例程 RViz 配置为准） |
 | 占据 / 膨胀 | `/grid_map/occupancy`、`/grid_map/occupancy_inflate` |
-| 最优 / A\* Marker | `/optimal_list`、`/a_star_list` |
+| OptimalBspline / AStarList | `/optimal_list`、`/a_star_list` |
+| EgoPlan | `/drone/nav/path_plan` |
 | 历史轨迹 | `/drone/nav/path_history` |
 
-Fixed Frame=`camera_link`（与例程 8 相同；`pose_to_odom` 同时广播 `world → camera_link`，规划 Marker 在 `world`）。RViz2 默认且必须开启；SSH 也会挂到本机桌面 `:0`。若板端 `rviz2` 无法出窗，同网 PC 打开 `ego_full.rviz`。
+Fixed Frame=`camera_link`（与例程 8 相同；`pose_to_odom` 同时广播 `world → camera_link`，规划路径在 `world`）。RViz2 默认开启；SSH 启动同样显示到本机桌面。同网开发机可打开 `ego_full.rviz`。
 
 控制：`PositionCommand` → `/drone/setpoint_position/local`；深度安全层过近时用机体速度覆盖。
 
@@ -1626,7 +1626,7 @@ Fixed Frame=`camera_link`（与例程 8 相同；`pose_to_odom` 同时广播 `wo
 > **本节目标**（`09_depth_nav`）：
 >
 > - 在板端编译并跑通完整 C++ EGO-Planner；
-> - OpenCV 深彩/三维信息分层：扇区距离等数值移至底部中文状态栏、俯视图默认机头朝北（N）；用 RViz2 观察 grid_map 与 B 样条路径；
+> - OpenCV 深彩/三维信息分层：扇区距离等数值在底部中文状态栏、俯视图机头朝北（N）并叠加 EGO 规划路径；用 RViz2 观察 B 样条路径；
 > - 理解 traj_server 控位与深度安全层的分工；
 > - 遵守室内拆桨 / 台架限速约定。
 
@@ -1667,7 +1667,7 @@ bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python arm:=true
 | `arm` | `false` | `true` 才解锁（**必须拆桨**） |
 | `start_stereo` | `true` | 是否拉起例程 8 的 Stereonet；为 true 时 MIPI ensure **失败即退出** |
 | `source` | `stereonet` | 深度源；`simulate` 无需相机；深度全 0 排查见 **4.3** / 例程 8 README |
-| `rviz` / `show` | `true` | **必须开** RViz2（SSH 挂到本机桌面 `:0`）/ OpenCV 双栏（无 DISPLAY 时 OpenCV 改写快照） |
+| `rviz` / `show` | `true` | 开启 RViz2（SSH 显示到本机桌面 `:0`）/ OpenCV 双栏（无 DISPLAY 时 OpenCV 改写快照） |
 | `altitude` | `0.1` | 起飞高度（m，室内） |
 | `max_vel` | `0.02` | 安全层速度上限（m/s，室内拆桨慢速） |
 | `safe_distance` | `1.2` | 深度安全层触发距离（m） |
@@ -1701,7 +1701,7 @@ MAVROS pose ── pose_to_odom ─────── /odom_world ────�
 | `未找到完整 EGO 安装` | 先跑 `setup_full_ego.sh`（首次编译约 10–20 分钟） |
 | 编译报 `Duplicate package names` | `EGO_FORCE_CLEAN=1 bash setup_full_ego.sh` 清空重编 |
 | EGO 在跑但无路径 | 确认 `/odom_world`、`/drone/ego/cloud_world` 有数据；规划线在 `world` 系 |
-| RViz 无官方彩色点云 | Fixed Frame=`camera_link`；Topic=`/StereoNetNode/stereonet_pointcloud2`；Color=`RGB8`；确认 `rviz:=true`。板端闪退则同网 PC 打开 `ego_full.rviz` |
+| RViz 无官方彩色点云 | Fixed Frame=`camera_link`；Topic=`/StereoNetNode/stereonet_pointcloud2`；Color=`RGB8` |
 | Stereonet **深度全 0** / 无深度 | 先用例程 8 `bash .../08_depth_camera/run.sh` 验证；见 **4.3** 常见问题 |
 | Stereonet 日志 `top is not left image` | mipi 帧序偶发告警，深度仍以约 15 fps 正常发布，可忽略 |
 | EGO 报 `the drone is in obstacle` | 1) 机体前方 1.5 m 内清空；2) `/odom_world` 应在原点附近（原点对齐后）；3) 不要把原始深度接到 `grid_map/depth` |
@@ -1735,7 +1735,7 @@ RViz图
 
 **OpenCV**：左=检测画面（行人框，画面干净无叠加）| 右=三维俯视（初始机头方向 = N 朝上；航迹黄线；机体→跟随点→目标橙线；行人「人」/跟随点「跟」中文标记；机体红点带净空底衬不被点云遮挡）；阶段/位移、速度/高度/目标距离、七扇区距离（红/橙/绿 = 急停/绕行/自由）、跟随点距离集中在画面**底部状态栏**分四行中文显示。YOLO 限频 5 Hz、目标短暂丢失 1 s 内记忆保持。
 
-**RViz**：与例程 8 相同的官方彩色点云 `/StereoNetNode/stereonet_pointcloud2`、深彩 `/StereoNetNode/stereonet_visual`，以及行人位姿 `/drone/follow/target`、跟随点 `/drone/follow/goal`、`/drone/ego/occ_viz` 占据 / 规划 Marker。
+**RViz**：与例程 8 相同的官方彩色点云 `/StereoNetNode/stereonet_pointcloud2`、深彩 `/StereoNetNode/stereonet_visual`，以及 EGO 规划路径 `/optimal_list`、`/drone/nav/path_plan`，行人 `/drone/follow/target`、跟随点 `/drone/follow/goal`。
 
 > **本节目标**（`10_target_follow`）：
 >
@@ -1784,7 +1784,7 @@ bash /app/zettatree_demo/10_target_follow/run.sh arm:=true \
 | `min_score` | `0.25` | YOLO person 置信度阈值 |
 | `start_stereo` | `true` | 是否拉起例程 8 的 Stereonet |
 | `show` / `snapshot` | `true` / 空 | OpenCV HUD / headless 快照 JPEG 路径 |
-| `rviz` | `true` | **必须开启** RViz2。SSH 也会挂到本机桌面 `:0` |
+| `rviz` | `true` | 开启 RViz2。SSH 启动同样显示到本机桌面 `:0` |
 
 #### 跟随链路与话题
 
@@ -1817,7 +1817,7 @@ stereonet_depth ─ 框内中位深度 ─────────────�
 | `ego_planner 包不可用` | `bash 10_target_follow/setup.sh`（复用例程 9 构建） |
 | 检测不稳 | 光照充足；`min_score:=0.2` 放宽（默认 0.25） |
 | 目标短暂丢失就悬停 | 正常设计：1 s 记忆保持，超时回「搜索行人…」 |
-| SSH 下看不到 HUD | OpenCV 无 DISPLAY 时写快照（默认 `/tmp/target_follow_snapshot.jpg`）。RViz2 由 `_common/rviz_run.sh` 显示在本机 HDMI；若 `rviz2` 无法出窗，同网 PC 打开 `target_follow.rviz` |
+| SSH 下看不到 HUD | OpenCV 无 DISPLAY 时写快照（默认 `/tmp/target_follow_snapshot.jpg`）。RViz2 显示在本机 HDMI 桌面；同网开发机可打开 `target_follow.rviz` |
 
 详见 `/app/zettatree_demo/10_target_follow/README.md`。须先完成例程 8/9；**必须拆桨**。
 

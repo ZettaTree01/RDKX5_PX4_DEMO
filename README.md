@@ -46,7 +46,7 @@ bash run.sh --yes
 | 双目深度 / 点云 | `hobot_stereonet` 量化 Stereonet | 无 MIPI 双目则不可用 |
 | 停机坪 H | OpenCV 轮廓 + 模板（无官方量化模型） | — |
 
-例程 `01` / `02` / `11` 不含神经网络。例程 **8 / 9 / 10 默认开启 RViz2**（SSH 也会挂到本机桌面 `:0`，共用 `_common/rviz_run.sh`）。若板端 `rviz2` 无法出窗，同网 PC 仍可打开各例程 `.rviz`。例程 8 也可用 `run.sh rviz` 单独打开；`Ctrl+C` 会停掉 MIPI/Stereonet/RViz2（例程 8 不上锁，9/10 再强制上锁）。
+例程 `01` / `02` / `11` 不含神经网络。例程 **8 / 9 / 10 默认开启 RViz2**（SSH 启动同样显示到本机桌面 `:0`）。例程 8 可用 `run.sh rviz` 单独打开。`Ctrl+C` 停止例程（例程 8 不上锁；9/10 经 UART 强制上锁）。
 
 ## 使用约定
 
@@ -128,9 +128,9 @@ bash /app/zettatree_demo/06_autonomous_cruise/run.sh fcu_url:=/dev/ttyACM0:11520
 | 文件 | 文档章节 | 说明 | 示例用法 |
 |---|---|---|---|
 | `env.sh` | — | 板端 ROS2 / TogetheROS 环境 | 各 `run.sh` 自动 `source` |
-| `run_flight.sh` | — | 退出陷阱：Ctrl+C 停栈；飞行例程再强制上锁（例程 8 设 `FLIGHT_DISARM=0`） | `02/05/06/07/08/09/10/11` 的 `run.sh` |
-| `stop_nav_stack.sh` | 4.3 | 停 MIPI / Stereonet / EGO / RViz2 / MAVROS | `08`/`09`/`10` Ctrl+C |
-| `rviz_run.sh` | 4.3 | 例程 8/9/10 共用：sunrise + `:0` 启动 `rviz2 -d` | `08`/`09`/`10` |
+| `run_flight.sh` | — | 退出时停栈；飞行例程再强制上锁 | `02/05/06/07/08/09/10/11` 的 `run.sh` |
+| `stop_nav_stack.sh` | 4.3 | 停 MIPI / Stereonet / EGO / RViz2 / MAVROS | `08`/`09`/`10` |
+| `rviz_run.sh` | 4.3 | 例程 8/9/10 共用：启动 `rviz2 -d` | `08`/`09`/`10` |
 | `emergency_disarm.py` | — | 经 UART 强制上锁（不依赖 MAVROS） | 退出陷阱 / 手动补救 |
 | `px4_pluginlists.yaml` | — | 全体飞控例程的 MAVROS 插件清单基线 | 各例程 launch 显式传入 |
 | `indoor.py` | — | 室内限速（速度 1/20；怠速→加速→最高 300 r/min） | 所有会转电机的例程 |

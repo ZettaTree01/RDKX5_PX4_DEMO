@@ -10,7 +10,7 @@
 
 OpenCV：
   - 左：检测画面 + 行人框（数值在底部状态栏）
-  - 右：三维俯视（初始机头 = N；航迹；机体→跟随点→目标；中文「人」「跟」）
+  - 右：三维俯视（初始机头 = N；航迹；EGO 规划路径；机体/跟随点/目标）
   - 底部状态栏四行中文（PIL）
   - YOLO 限频 5 Hz；目标短暂丢失在 target_timeout 内记忆保持。
 
@@ -218,6 +218,7 @@ class TargetFollowNode(Node):
         self._last_goal_pub = None
         self.trail = []
         self._last_trail_t = 0.0
+        self._ego_plan_xy = []
         self.cmd = (0.0, 0.0, 0.0)
         self.move_label = '悬停'
         self._avoid_cfg = EgoAvoidConfig(
@@ -252,7 +253,9 @@ class TargetFollowNode(Node):
         self.follow_goal_pub = self.create_publisher(
             PoseStamped, '/drone/follow/goal', 5)
         self.path_pub = self.create_publisher(Path, '/drone/nav/path_history', 1)
+        self.plan_pub = self.create_publisher(Path, '/drone/nav/path_plan', 1)
         self.link_pub = self.create_publisher(Marker, '/drone/follow/link', 5)
+        self.create_subscription(Marker, '/optimal_list', self._on_ego_plan, 10)
 
         # EGO 原点：室内 MAVROS local 带气压高度和残留 XY，地图只有 ±4 m
         self._z0 = None
@@ -341,6 +344,25 @@ class TargetFollowNode(Node):
             return (x, y, self._ego_z(z))
         x0, y0, z0 = self._origin
         return (x - x0, y - y0, z - z0)
+
+    def _on_ego_plan(self, msg: Marker):
+        """订阅 EGO /optimal_list，转发 Path 并供俯视绘制规划路径。"""
+        if not msg.points:
+            return
+        self._ego_plan_xy = [(float(p.x), float(p.y)) for p in msg.points]
+        path = Path()
+        path.header = Header(
+            stamp=self.get_clock().now().to_msg(),
+            frame_id=msg.header.frame_id or 'world')
+        for p in msg.points:
+            ps = PoseStamped()
+            ps.header = path.header
+            ps.pose.position.x = float(p.x)
+            ps.pose.position.y = float(p.y)
+            ps.pose.position.z = float(p.z)
+            ps.pose.orientation.w = 1.0
+            path.poses.append(ps)
+        self.plan_pub.publish(path)
 
     def _on_depth(self, msg: Image):
         """深度图回调。"""
@@ -763,29 +785,34 @@ class TargetFollowNode(Node):
             left = cv2.resize(
                 left, (self.depth_m.shape[1], self.depth_m.shape[0]))
 
-        # 右：三维俯视（N=初始机头；航迹黄线；机体→跟随点→目标橙线）
+        # 右：三维俯视（N=初始机头；航迹；EGO 规划路径；人/跟标记）
         pts, _ = depth_to_points(
             self.depth_m, self.fx, self.fy, self.cx, self.cy,
             stride=self._viz_stride, max_range=5.0, min_range=0.3)
         planned = None
         mk_target = mk_goal = None
-        if self.pose is not None:
-            if self.goal_w is not None:
-                planned = [(self.pose[0], self.pose[1]),
+        pose_enu = self._ego_xyz(self.pose) if self.pose is not None else None
+        if pose_enu is not None:
+            if len(self._ego_plan_xy) >= 2:
+                planned = list(self._ego_plan_xy)
+            elif self.goal_w is not None:
+                planned = [(pose_enu[0], pose_enu[1]),
                            (self.goal_w[0], self.goal_w[1])]
                 if self.target_w is not None:
-                    planned.append((self.target_w[0], self.target_w[1]))
+                    tw = self._ego_xyz(self.target_w)
+                    planned.append((tw[0], tw[1]))
+            if self.goal_w is not None:
                 mk_goal = (self.goal_w[0], self.goal_w[1],
                            (60, 165, 255), 6, 'diamond')
             if self.target_w is not None:
-                mk_target = (self.target_w[0], self.target_w[1],
-                             (80, 220, 80), 7, 'circle')
+                tw = self._ego_xyz(self.target_w)
+                mk_target = (tw[0], tw[1], (80, 220, 80), 7, 'circle')
         markers = [mk[:5] for mk in (mk_target, mk_goal) if mk is not None]
         top = render_modeling_panel(
             self.depth_m, pts, color_bgr=None,
             trail_enu=self.trail,
             planned_enu=planned,
-            pose_enu=self.pose,
+            pose_enu=pose_enu,
             yaw=self.yaw,
             north_yaw=self._north_yaw,
             title='', panel_mode='cloud', markers=markers)

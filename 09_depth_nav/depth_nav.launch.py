@@ -198,7 +198,7 @@ def generate_launch_description():
             description='启动 EGO 局部占据地图 + A* 路径节点'),
         DeclareLaunchArgument(
             'rviz', default_value='true',
-            description='默认 true：必须开 RViz（官方点云 + 占据地图）。SSH 也会挂到本机桌面 :0'),
+            description='默认开启 RViz2（官方点云 + 占据地图）。SSH 无 DISPLAY 时显示到本机桌面 :0'),
         DeclareLaunchArgument('max_vel', default_value=INDOOR_MAX_VEL),
         DeclareLaunchArgument('safe_distance', default_value='1.2'),
         DeclareLaunchArgument('stop_distance', default_value='0.45'),

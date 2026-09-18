@@ -11,13 +11,13 @@ Stereonet 点云 → world 点云 → grid_map → ego_planner_node（A*+B样条
                                               ↓
                                     PositionCommand → offboard
 OpenCV：官方深彩 | **3D POINT** 俯视 | 底部状态栏
-RViz2：例程8同款官方彩色点云 + world 点云建模 + 膨胀占据 + EGO 规划 Marker（`rviz2 -d ego_full.rviz`）
+RViz2：例程8同款官方彩色点云 + EGO 规划路径（`rviz2 -d ego_full.rviz`）
 ```
 
 | 层级 | 内容 |
 |------|------|
-| OpenCV | 深彩 + **3D POINT** 俯视；底部中文状态栏 |
-| RViz2 | 官方 `stereonet_pointcloud2`（RGB8）+ 深彩 + OccViz / grid_map / Marker |
+| OpenCV | 深彩 + **3D POINT** 俯视（航迹 + EGO 规划路径）；底部中文状态栏 |
+| RViz2 | 官方 `stereonet_pointcloud2`（RGB8）+ 深彩 + EGO 规划 Marker / Path |
 | 控制 | `traj_server` 位姿设定点；深度安全层过近时速度覆盖 |
 
 可选：`backend:=python` 退回板端 Python A* 同构实现（教学对照）。
@@ -48,7 +48,9 @@ EGO_FORCE_CLEAN=1 bash /app/zettatree_demo/09_depth_nav/setup_full_ego.sh
 | `/odom_world` | MAVROS pose → Odometry |
 | `/grid_map/occupancy` | EGO 占据点云 |
 | `/grid_map/occupancy_inflate` | 膨胀占据 |
-| `/optimal_list` / `/a_star_list` | 规划 Marker |
+| `/optimal_list` / `/a_star_list` | EGO 规划 Marker |
+| `/drone/nav/path_plan` | 规划路径（由 `/optimal_list` 转发，frame=`world`） |
+| `/drone/nav/path_history` | 已飞航迹 |
 | `/planning/bspline` | B 样条轨迹 |
 | `/position_cmd` | traj_server 位置指令 |
 | `/drone/setpoint_position/local` | 转发给 OFFBOARD |
@@ -77,7 +79,7 @@ bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 
 > Stereonet 模式下 MIPI 未就绪则退出，避免无图启动规划。
 >
-> `Ctrl+C` 会经 `_common/run_flight.sh` 先停 MIPI/Stereonet/EGO/RViz/MAVROS，再限时强制上锁；若仍有残留可手动：
+> `Ctrl+C` 停止 MIPI / Stereonet / EGO / RViz2 / MAVROS 并强制上锁。若仍有残留：
 > `bash /app/zettatree_demo/_common/stop_nav_stack.sh`
 
 ## RViz2（完整 EGO）
@@ -87,11 +89,12 @@ bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 | Depth Color | `/StereoNetNode/stereonet_visual` |
 | stereonet_pointcloud2 | `/StereoNetNode/stereonet_pointcloud2`（RGB8，与例程8相同，Fixed Frame=`camera_link`） |
 | GridMapInflate | `/grid_map/occupancy_inflate`（橙色膨胀占据，**默认关闭**；建模看彩色点云即可，需要看规划障碍时再勾选） |
-| OptimalBspline / AStarList | `/optimal_list`、`/a_star_list`（规划路线，frame=`world`） |
-| PathHistory | `/drone/nav/path_history` |
+| OptimalBspline / AStarList | `/optimal_list`、`/a_star_list`（规划 Marker，frame=`world`） |
+| EgoPlan | `/drone/nav/path_plan`（规划路径） |
+| PathHistory | `/drone/nav/path_history`（已飞航迹） |
 
-Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 TF 即可显示；规划 Marker 在 `world`，由 `pose_to_odom` 提供 `world→camera_link`）。SSH 启动也会把 RViz2 挂到本机桌面 `:0`（`_common/rviz_run.sh`）。若板端 `rviz2` 无法出窗，同网 PC 打开 `ego_full.rviz`。
-**不必**为建模接入橙色点云：规划建图在后台走 `/drone/ego/cloud_world`，与 RViz 是否显示 inflate 无关。
+Fixed Frame = **`camera_link`**（与例程 8 相同；规划在 `world`，由 `pose_to_odom` 提供 `world→camera_link`）。SSH 启动同样把 RViz2 显示到本机桌面。同网开发机可打开 `ego_full.rviz`。
+规划建图走 `/drone/ego/cloud_world`；GridMapInflate 默认关闭，需要看膨胀占据时再勾选。
 
 ## 参数
 
@@ -99,7 +102,7 @@ Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 
 |------|------|------|
 | （默认） | full | 完整 C++ EGO |
 | `backend:=python` | — | Python A* 同构 |
-| `rviz` | `true` | **必须开启** RViz2（官方彩色点云 + OccViz）。SSH 自动挂到本机桌面 `:0` |
+| `rviz` | `true` | 开启 RViz2（官方彩色点云 + 规划路径）。SSH 自动显示到本机桌面 `:0` |
 | `source` | `stereonet` | 深度源 |
 | `arm` | `false` | 解锁 |
 | `max_vel` | `0.02` | 安全层速度上限 |
