@@ -499,7 +499,11 @@ class OffboardManager(Node):
             1.0 - 2.0 * (qy * qy + qz * qz))
 
     def _quat_from_rpy(self, roll, pitch, yaw):
-        """ZYX（yaw-pitch-roll）→ 四元数，ROS ENU：+pitch 抬头，+roll 右翼下沉。"""
+        """ZYX（yaw-pitch-roll）→ 四元数，发给 MAVROS 的 ENU/base_link 姿态。
+
+        MAVROS 会做 ENU→NED（`NED_ENU_Q * q * AIRCRAFT_BASELINK_Q`），欧拉俯仰符号翻转。
+        因此这里的正 pitch 经转换后对应 PX4 负俯仰（机头下俯），正 roll 对应右翼下沉。
+        """
         cy, sy = math.cos(yaw * 0.5), math.sin(yaw * 0.5)
         cp, sp = math.cos(pitch * 0.5), math.sin(pitch * 0.5)
         cr, sr = math.cos(roll * 0.5), math.sin(roll * 0.5)
@@ -513,16 +517,17 @@ class OffboardManager(Node):
     def _attitude_from_body(self, body_velocity):
         """机体 FLU 速度 → 姿态+油门，让混控按俯仰/横滚拉开电机转速。
 
-        四旋翼（PX4 X 机架）：
-          前飞 +vx → 负 pitch（机头下俯）→ 后电机加快、前电机减慢
-          左飞 +vy → 负 roll（左翼下沉）→ 右电机加快、左电机减慢
+        四旋翼（PX4 X 机架），经 MAVROS ENU→NED 后：
+          前飞 +vx → 机头下俯 → 后电机加快、前电机减慢
+          左飞 +vy → 左翼下沉 → 右电机加快、左电机减慢
           上升 +vz → 提高总距（四电机一起加快）
         """
         vx, vy, vz = self._limit_body_vel(body_velocity)
         lim = max(XY_VEL_MAX, 1e-6)
         zlim = max(Z_VEL_MAX, 1e-6)
         max_tilt = 0.22  # 约 12.6°，台架可听出前后/左右差速
-        pitch = -max_tilt * max(-1.0, min(1.0, vx / lim))
+        # 正 pitch 经 MAVROS 后为 PX4 负俯仰（机头下俯）；负 roll 为左翼下沉。
+        pitch = max_tilt * max(-1.0, min(1.0, vx / lim))
         roll = -max_tilt * max(-1.0, min(1.0, vy / lim))
         yaw = self._yaw_enu() if self.pose is not None else 0.0
         if vz >= 0.0:
