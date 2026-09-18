@@ -22,7 +22,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
-    DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy,
+    DurabilityPolicy, QoSProfile, ReliabilityPolicy,
     qos_profile_sensor_data)
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State
@@ -43,11 +43,8 @@ from frame_output import FrameOutput
 from indoor import CRUISE_SIDE_M, NAV_VEL_MPS, RelAlt
 from cn_hud import put_cn_lines
 
-# Stereonet 发布端为 RELIABLE
-_QOS_STEREO = QoSProfile(
-    reliability=ReliabilityPolicy.RELIABLE,
-    history=HistoryPolicy.KEEP_LAST,
-    depth=5)
+# Stereonet 图像用传感器 QoS，避免 RELIABLE 反压把 BPU 推理队列打满
+_QOS_STEREO = qos_profile_sensor_data
 _QOS_LATCHED = QoSProfile(
     depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
     reliability=ReliabilityPolicy.RELIABLE)

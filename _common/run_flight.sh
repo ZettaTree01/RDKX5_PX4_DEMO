@@ -64,6 +64,11 @@ _flight_exit_cleanup() {
 
 # 以前台可中断方式跑命令（例程 09/10 必用）
 _flight_run() {
+  # 只清残留静态 TF，不动 MIPI（ensure_mipi 可能已拉起）
+  pkill -TERM -f 'static_transform_publisher --frame-id map --child-frame-id world' \
+    2>/dev/null || true
+  pkill -TERM -f 'static_transform_publisher --frame-id base_link --child-frame-id camera_link' \
+    2>/dev/null || true
   if command -v setsid >/dev/null 2>&1; then
     setsid "$@" &
   else

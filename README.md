@@ -31,7 +31,7 @@ bash run.sh --yes
 | `04_object_detection` | 3.1 | 例程4：USB + BPU 量化 YOLO | USB 相机 + BPU `.bin` |
 | `05_obstacle_avoidance` | 3.2 | 例程5：USB 单目 + BPU YOLO 识别避障 | USB 相机 + BPU + ZP-PV601 |
 | `06_autonomous_cruise` | 4.1 | 例程6：USB + 自主巡航拍照（BPU YOLO 叠框） | USB 相机 + ZP-PV601 |
-| `07_target_tracking` | 4.2 | 例程7：USB + 停机坪 H 标对准降落 | USB 相机 + ZP-PV601 |
+| `07_target_tracking` | 4.2 | 例程7：USB + 停机坪 H 标对准降落（BPU 分类网） | USB 相机 + BPU + ZP-PV601 |
 | `08_depth_camera` | 4.3 | 例程8：GS130W **BPU Stereonet** 深度/点云 | MIPI 双目 GS130W |
 | `09_depth_nav` | 4.4 | 例程9：深度导航（Stereonet BPU + EGO） | 深度相机 + ZP-PV601，**拆桨** |
 | `10_target_follow` | 4.5 | 例程10：目标跟随（BPU YOLO + Stereonet） | 深度相机 + BPU + ZP-PV601，**拆桨** |
@@ -43,8 +43,10 @@ bash run.sh --yes
 |------|----------|------|
 | 单目预览 / 检测 / 巡航 / H 标（例程 3–7） | USB `/dev/video0` → `/camera/image_raw` | — |
 | 目标检测 | Horizon BPU YOLO `.bin`（NV12） | 无模型则跳过叠框 |
-| 双目深度 / 点云 | `hobot_stereonet` 量化 Stereonet | 无 MIPI 双目则不可用 |
-| 停机坪 H | OpenCV 轮廓 + 模板（无官方量化模型） | — |
+| 双目深度 / 点云 | `hobot_stereonet` 量化 Stereonet（BPU 连续推理） | 无 MIPI 双目则不可用 |
+| 停机坪 H | BPU 分类网比对合成 H + 轮廓提案（无专用 H `.bin` 时回退 NCC） | — |
+
+例程 8/9/10 的视差由 BPU Stereonet 连续推理；例程 10 另在独立线程跑 BPU YOLO。点云与 RViz 对 Stereonet 话题使用 BEST_EFFORT，避免 CPU 可视化堵住推理队列。
 
 例程 `01` / `02` / `11` 不含神经网络。例程 **8 / 9 / 10 默认开启 RViz2**（SSH 启动同样显示到本机桌面 `:0`）。例程 8 可用 `run.sh rviz` 单独打开。`Ctrl+C` 停止例程（例程 8 不上锁；9/10 经 UART 强制上锁）。
 
@@ -60,8 +62,9 @@ bash run.sh --yes
    任务节点只发 `/drone/setpoint_*`（`05`、`06` 等飞行例程就是这样用的）
 7. 管理器只有显式传 `arm:=true` 才切 OFFBOARD 并解锁
 8. 室内无 GPS 又必须解锁时，飞行例程默认 `bench:=true`（含台架位姿回灌）；也可单独跑 `02_bench_pose_sim`
-9. **室内台架限速**：怠速慢转、按任务加速、最高 **300 r/min**；速度/高度为实飞 1/20。
-   无指令时怠速，有避障/跟踪指令时能看出加速。实飞把
+9. **室内台架限速**：怠速慢转、按任务加速、最高 **600 r/min**；速度/高度为实飞 1/20。
+   机体 FLU：`+x` 前、`+y` 左、`+z` 上。前飞时机头下俯、后电机加快；左飞时左翼下沉、右电机加快。
+   无指令时悬停保转速，有避障/对准/航点指令时再加速。实飞把
    `INDOOR_SPEED_SCALE` 改为 `1.0`，或 launch 显式传 `altitude:=2 max_vel:=0.5`
 10. **安全**：必须拆桨。`Ctrl+C` / 例程退出后，`run.sh` 会经 UART 强制上锁停转；
     若电机仍转，手动执行：
@@ -133,10 +136,10 @@ bash /app/zettatree_demo/06_autonomous_cruise/run.sh fcu_url:=/dev/ttyACM0:11520
 | `rviz_run.sh` | 4.3 | 例程 8/9/10 共用：启动 `rviz2 -d` | `08`/`09`/`10` |
 | `emergency_disarm.py` | — | 经 UART 强制上锁（不依赖 MAVROS） | 退出陷阱 / 手动补救 |
 | `px4_pluginlists.yaml` | — | 全体飞控例程的 MAVROS 插件清单基线 | 各例程 launch 显式传入 |
-| `indoor.py` | — | 室内限速（速度 1/20；怠速→加速→最高 300 r/min） | 所有会转电机的例程 |
-| `offboard_manager.py` | 2.7 | OFFBOARD 管理器：起飞、降落上锁、设定点仲裁 | `02`/`05`–`07`/`09`–`11` |
+| `indoor.py` | — | 室内限速（速度 1/20；怠速→加速→最高 600 r/min） | 所有会转电机的例程 |
+| `offboard_manager.py` | 2.7 | OFFBOARD 管理器：起飞、降落上锁、机体速度转姿态差速 | `02`/`05`–`07`/`09`–`11` |
 | `yolo_detector.py` | 3.1 / 3.2 | **BPU** 量化 YOLO：NV12 + DFL + NMS | `04`/`05`/`06`/`10` |
-| `helipad_h.py` | 4.2 | 停机坪 H 标识别（轮廓 + H 模板；无官方量化模型） | `07_target_tracking` |
+| `helipad_h.py` | 4.2 | 停机坪 H 标：轮廓提案 + BPU 分类网比对合成 H | `07_target_tracking` |
 | `camera_node.py` | 3.1 | USB 摄像头发布 `/camera/image_raw` | 例程 **3–7** 默认 |
 | `mipi_camera_bridge.py` | 3.1 | GS130W 左目 → `/camera/image_raw` | 可选；深度链路见例程 8 |
 | `start_vision_cam.sh` | 3.1 | 视觉相机入口 | `03`–`07` 默认 USB；`mipi`/`auto` 可选 |

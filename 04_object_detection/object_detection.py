@@ -54,6 +54,7 @@ class DroneDetectionNode(Node):
         self.detector = YoloDetector(
             score_thres=score_thres, nms_thres=nms_thres,
             log=self.get_logger())
+        self.detector.start_async(period=0.1)
 
         self.out = FrameOutput(
             self, show=show, snapshot=snapshot,
@@ -75,7 +76,11 @@ class DroneDetectionNode(Node):
             return
 
         try:
-            detections = self.detector.detect(frame)
+            self.detector.submit_frame(frame)
+            detections = self.detector.latest_detections()
+            if detections is None:
+                self._output(frame, [])
+                return
         except Exception:
             self.get_logger().error(
                 '推理失败:\n' + traceback.format_exc(),

@@ -16,7 +16,7 @@
 推理与图像回调解耦：回调只缓存最新帧，定时器按 infer-hz 推理。
 
 室内台架：05 launch 默认拉起台架位姿模拟；arm:=true 后先爬升拉转速，
-再悬停保持转速，靠近障碍按距离加速，最高 300 r/min。
+再悬停保持转速，靠近障碍按距离加速，最高 600 r/min。
 画面高度为相对开机位置，避免室内气压计显示几十米。
 """
 import argparse
@@ -173,6 +173,7 @@ class ObstacleAvoidanceNode(Node):
         self.detector = YoloDetector(
             score_thres=score_thres, nms_thres=nms_thres,
             log=self.get_logger())
+        self.detector.start_async(period=1.0 / max(1.0, float(infer_hz)))
 
         self.image_sub = self.create_subscription(
             Image, '/camera/image_raw', self.image_callback,
@@ -233,9 +234,11 @@ class ObstacleAvoidanceNode(Node):
         ratio = (self.safe_distance - distance) / self.safe_distance
         ratio = max(0.0, min(1.0, ratio))
         speed = self.max_vel * (0.2 + 0.8 * ratio)
+        # yaw：画面右偏为正（机体右侧）。反向离开障碍：
+        # 右前方障碍 → 后、左；FLU +y 为左，故 vy 取 +sin(yaw)。
         return (
             -speed * float(np.cos(yaw)),
-            -speed * float(np.sin(yaw)),
+            speed * float(np.sin(yaw)),
             speed * float(np.sin(pitch)))
 
     def _phase_txt(self):
@@ -283,7 +286,10 @@ class ObstacleAvoidanceNode(Node):
 
         detections = []
         try:
-            detections = self.detector.detect(frame)
+            self.detector.submit_frame(frame)
+            detections = self.detector.latest_detections()
+            if detections is None:
+                return
         except Exception:
             self.get_logger().error(
                 '推理失败:\n' + traceback.format_exc(),
@@ -335,6 +341,7 @@ class ObstacleAvoidanceNode(Node):
             frac = box_h / max(float(frame_h), 1.0)
             fill = FILL_FRAC_AT_REF / max(frac, 0.02) * FILL_DIST_M
             distance = min(float(pinhole_h), float(pinhole_w), float(fill))
+            # 前视相机：u 右偏 → 机体右侧（yaw>0）；v 下偏 → 画面下方（pitch>0）
             yaw = float(np.arctan(((x1 + x2) / 2.0 - cx) / fx))
             pitch = float(np.arctan(((y1 + y2) / 2.0 - cy) / fy))
             if best is None or distance < best[0]:

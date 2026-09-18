@@ -27,6 +27,8 @@ BGR 帧 → letterbox 缩放 → NV12(h*w*1.5) → BPU 推理
   - 无目标时返回空列表，禁止返回写死的假框
 """
 import os
+import threading
+import time
 from types import SimpleNamespace
 
 import numpy as np
@@ -300,6 +302,11 @@ class YoloDetector:
         self.weights_static = np.arange(REG, dtype=np.float32)[
             np.newaxis, np.newaxis, :]
         self.class_names = self._load_class_names()
+        self._async_lock = threading.Lock()
+        self._async_frame = None
+        self._async_dets = None
+        self._async_period = 0.1
+        self._async_thread = None
 
         path = model_path or first_existing_model()
         if hbm_runtime is None and pyeasy_dnn is None:
@@ -497,3 +504,50 @@ class YoloDetector:
         """BGR 帧 → 检测框列表 [(x1, y1, x2, y2, score, cls_id), ...]（像素坐标）。"""
         return self._postprocess(
             self._infer(frame_bgr), frame_bgr.shape[1], frame_bgr.shape[0])
+
+    @property
+    def async_running(self):
+        """是否已启动独立 BPU 推理线程。"""
+        return self._async_thread is not None
+
+    def start_async(self, period=0.1):
+        """独立线程循环跑 BPU，避免推理堵住 ROS 回调、拖垮 Stereonet 队列。"""
+        if not self.loaded or self._async_thread is not None:
+            return
+        self._async_period = max(0.05, float(period))
+        thread = threading.Thread(
+            target=self._async_loop, name='yolo-bpu', daemon=True)
+        self._async_thread = thread
+        thread.start()
+        self._log.info(
+            f'YOLO BPU 独立线程 {1.0 / self._async_period:.0f} Hz')
+
+    def submit_frame(self, frame_bgr):
+        """只保留最新一帧，供 BPU 线程取走。"""
+        if frame_bgr is None or self._async_thread is None:
+            return
+        with self._async_lock:
+            self._async_frame = frame_bgr
+
+    def latest_detections(self):
+        """最近一次 BPU 结果；尚未推理完时返回 None。"""
+        with self._async_lock:
+            return self._async_dets
+
+    def _async_loop(self):
+        """最新帧 → BPU forward → 缓存检测框。"""
+        while True:
+            t0 = time.monotonic()
+            with self._async_lock:
+                frame = self._async_frame
+                self._async_frame = None
+            if frame is not None:
+                try:
+                    dets = self.detect(frame)
+                except Exception as exc:
+                    self._log.error(f'YOLO BPU 线程失败: {exc}')
+                    dets = []
+                with self._async_lock:
+                    self._async_dets = dets
+            dt = time.monotonic() - t0
+            time.sleep(max(0.0, self._async_period - dt))

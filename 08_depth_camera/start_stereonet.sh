@@ -177,7 +177,8 @@ cat > "$PARAMS" <<EOF
     max_disp: 192
     render_type: ${RENDER_YAML}
     render_perf: ${RENDER_PERF}
-    render_need_filter: true
+    # 深彩滤波在 CPU 上做；关闭以免拖住 BPU 视差推理队列
+    render_need_filter: false
     render_max_depth: 10000
     visual_alpha: 3
     visual_beta: 0

@@ -12,7 +12,7 @@ OpenCV：
   - 左：检测画面 + 行人框（数值在底部状态栏）
   - 右：三维俯视（初始机头 = N；航迹；EGO 规划路径；机体/跟随点/目标）
   - 底部状态栏四行中文（PIL）
-  - YOLO 限频 5 Hz；目标短暂丢失在 target_timeout 内记忆保持。
+  - YOLO 在独立线程走 BPU（默认 10 Hz）；目标短暂丢失在 target_timeout 内记忆保持。
 
 必须拆桨。
 参考：
@@ -33,7 +33,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
-    DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy,
+    DurabilityPolicy, QoSProfile, ReliabilityPolicy,
     qos_profile_sensor_data)
 from geometry_msgs.msg import Point, PoseStamped, TwistStamped
 from mavros_msgs.msg import State
@@ -54,11 +54,8 @@ from frame_output import FrameOutput
 from indoor import NAV_VEL_MPS, RelAlt
 from yolo_detector import YoloDetector
 
-# Stereonet 发布端为 RELIABLE
-_QOS_STEREO = QoSProfile(
-    reliability=ReliabilityPolicy.RELIABLE,
-    history=HistoryPolicy.KEEP_LAST,
-    depth=5)
+# Stereonet 图像用传感器 QoS，避免 RELIABLE 反压把 BPU 推理队列打满
+_QOS_STEREO = qos_profile_sensor_data
 
 # pose_to_odom 锁定的原点（latched）：EGO 世界系 = MAVROS local - origin
 # 出界时 grid_map.getInflateOccupancy 返回 -1，C++ 当作障碍。
@@ -185,7 +182,7 @@ class TargetFollowNode(Node):
             snapshot=None, snapshot_period=5.0, max_vel=None,
             standoff=0.8, follow_z=0.1, goal_period=0.5,
             safe_distance=1.2, stop_distance=0.45,
-            min_score=0.25, detect_period=0.2, target_timeout=1.0):
+            min_score=0.25, detect_period=0.1, target_timeout=1.0):
         """planner=ego|direct；standoff 为与行人保持的水平距离(m)。"""
         super().__init__('target_follow')
         self.bridge = CvBridge()
@@ -241,6 +238,7 @@ class TargetFollowNode(Node):
         self._viz_stride = 8 if source == 'simulate' else 14
 
         self.detector = YoloDetector(score_thres=self.min_score, log=self.get_logger())
+        self.detector.start_async(period=self.detect_period)
 
         self.goal_ego_pub = self.create_publisher(
             PoseStamped, '/move_base_simple/goal', 5)
@@ -281,16 +279,13 @@ class TargetFollowNode(Node):
             self.get_logger().info('跟随源=simulate（虚拟行人绕圈，世界系）')
         else:
             self.create_subscription(
-                Image, '/StereoNetNode/stereonet_visual',
-                self._on_visual, _QOS_STEREO)
-            self.create_subscription(
                 Image, LEFT_IMAGE_TOPIC,
                 self._on_color, _QOS_STEREO)
             self.create_subscription(
                 Image, '/StereoNetNode/stereonet_depth',
                 self._on_depth, _QOS_STEREO)
             self.get_logger().info(
-                f'跟随源=stereonet + YOLO person（限频 {1.0 / self.detect_period:.0f} Hz，'
+                f'跟随源=stereonet + YOLO person（BPU {1.0 / self.detect_period:.0f} Hz，'
                 f'记忆保持 {self.target_timeout:.1f} s）')
 
         self.out = FrameOutput(
@@ -382,21 +377,10 @@ class TargetFollowNode(Node):
         # 左目是 NV12（mipi dual 常用），cv_bridge 不认，须走
         try:
             self.color_bgr = image_msg_to_bgr(msg, self.bridge)
+            self.detector.submit_frame(self.color_bgr)
         except Exception as exc:
             self.get_logger().warn(
                 f'检测画面解码失败: {exc}', throttle_duration_sec=5.0)
-
-    def _on_visual(self, msg: Image):
-        """Stereonet 深彩回调。"""
-        # 官方深彩仅作显示底图兜底（检测画面优先 rectified_image）
-        now = time.monotonic()
-        if now - self._last_visual_t < 0.2:
-            return
-        self._last_visual_t = now
-        try:
-            self._last_visual = image_msg_to_bgr(msg, self.bridge)
-        except Exception:
-            pass
 
     # ---- 模拟行人（世界系，验证链路）----
 
@@ -450,7 +434,12 @@ class TargetFollowNode(Node):
         if not self.detector.loaded:
             return None
         try:
-            dets = self.detector.detect(frame)
+            if self.detector.async_running:
+                dets = self.detector.latest_detections()
+                if dets is None:
+                    return None
+            else:
+                dets = self.detector.detect(frame)
         except Exception:
             self.get_logger().error(
                 'YOLO 失败:\n' + traceback.format_exc(),
@@ -473,7 +462,8 @@ class TargetFollowNode(Node):
             return self.target_w is not None
         fresh = (self.target_w is not None
                  and now - self._last_target_t <= self.target_timeout)
-        if now - self._last_detect_t < self.detect_period:
+        if (not self.detector.async_running
+                and now - self._last_detect_t < self.detect_period):
             return fresh
         self._last_detect_t = now
         if self.color_bgr is None or self.depth_m is None or self.pose is None:
@@ -931,8 +921,8 @@ def main(args=None):
     parser.add_argument('--safe-distance', type=float, default=1.2)
     parser.add_argument('--stop-distance', type=float, default=0.45)
     parser.add_argument('--min-score', type=float, default=0.25)
-    parser.add_argument('--detect-period', type=float, default=0.2,
-                        help='YOLO 检测周期（s，默认 0.2 = 5 Hz）')
+    parser.add_argument('--detect-period', type=float, default=0.1,
+                        help='YOLO 检测周期（s，默认 0.1 = 10 Hz，独立 BPU 线程）')
     parser.add_argument('--target-timeout', type=float, default=1.0,
                         help='目标丢失记忆保持时长（s）')
     parsed, ros_args = parser.parse_known_args(args)

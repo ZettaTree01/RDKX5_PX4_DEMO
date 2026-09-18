@@ -77,9 +77,9 @@ class AutonomousCruiseNode(Node):
             pass
         self.frame = None
         self.dets = []
-        self._last_infer = 0.0
         self._infer_dt = 1.0 / max(1.0, float(infer_hz))
         self.detector = YoloDetector(log=self.get_logger())
+        self.detector.start_async(period=self._infer_dt)
         self.create_subscription(
             Image, '/camera/image_raw', self._on_image, qos_profile_sensor_data)
 
@@ -142,12 +142,12 @@ class AutonomousCruiseNode(Node):
         except Exception as exc:
             self.get_logger().warn(f'相机解码失败: {exc}', throttle_duration_sec=2.0)
             return
-        now = time.monotonic()
-        if (self.detector.loaded and self.frame is not None
-                and now - self._last_infer >= self._infer_dt):
-            self._last_infer = now
+        if self.detector.loaded and self.frame is not None:
             try:
-                self.dets = self.detector.detect(self.frame)
+                self.detector.submit_frame(self.frame)
+                dets = self.detector.latest_detections()
+                if dets is not None:
+                    self.dets = dets
             except Exception as exc:
                 self.get_logger().warn(
                     f'BPU YOLO 失败: {exc}', throttle_duration_sec=5.0)

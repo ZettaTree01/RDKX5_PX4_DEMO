@@ -21,16 +21,16 @@
 命令带 -t 参数，超时后飞控自动停转；Ctrl+C 也会立刻发停止指令。
 ======================================================================
 
-关于转速上限 300 r/min:
+关于转速上限 600 r/min:
   PX4 的 actuator_test 只接受 **-1~1 的输出值**，没有直接设定 r/min 的接口。
   本脚本默认输出值已按室内上限封顶；若电调支持 DShot 遥测，实际 rpm 超过
-  300 时会自动把输出值压下去。
+  600 时会自动把输出值压下去。
 
 用法:
   # 只探测 actuator_test 是否可用，不转电机
   python3 motor_test_via_usb.py --probe
 
-  # 全部电机同步启动：怠速斜坡加速到 300 r/min 上限，约 6 秒
+  # 全部电机同步启动：怠速斜坡加速到 600 r/min 上限，约 6 秒
   python3 motor_test_via_usb.py --duration 6 --i-am-sure
 
   # 只转 1 号电机
@@ -65,7 +65,7 @@ FLAG_RESPOND = 2
 FLAG_EXCLUSIVE = 4
 FLAG_BLOCKING = 8
 
-MAX_SAFE_VALUE = THR_MAX    # 室内最高 300 r/min，不允许再加输出
+MAX_SAFE_VALUE = THR_MAX    # 室内最高 600 r/min，不允许再加输出
 MAX_SAFE_DURATION = 30.0
 
 
@@ -182,7 +182,7 @@ def main():
     ap.add_argument('--num-motors', type=int, default=0,
                     help='电机数量，0=从 SERVO_OUTPUT_RAW 自动识别')
     ap.add_argument('--value', type=float, default=MOTOR_TEST_VALUE,
-                    help='输出值 -1~1（不是 rpm），默认 %.4f，且不超过 300 r/min 油门上限 %.3f'
+                    help='输出值 -1~1（不是 rpm），默认 %.4f，且不超过 600 r/min 油门上限 %.3f'
                     % (MOTOR_TEST_VALUE, THR_MAX))
     ap.add_argument('--duration', type=float, default=6.0,
                     help='运行时长(秒)，默认 6（从怠速斜坡加速到上限）')

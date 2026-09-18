@@ -11,7 +11,7 @@
 未检测到 H，或图像断流超过 0.5 秒：以零速悬停，不降落。
 已请求降落后：本节点停止发布速度，由管理器完成下降与上锁。
 
-室内 launch 默认 ``bench:=true``；须指定 ``arm:=true`` 才会强制解锁，最高约 300 r/min。
+室内 launch 默认 ``bench:=true``；须指定 ``arm:=true`` 才会强制解锁，最高约 600 r/min。
 """
 import argparse
 import os
@@ -33,7 +33,7 @@ from std_msgs.msg import Bool
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..', '_common'))
 from frame_output import FrameOutput
-from helipad_h import detect_h_mark
+from helipad_h import detect_h_mark, warmup_bpu, bpu_ready
 from indoor import RelAlt, TRACK_VEL_MPS
 from depth_rgbd import image_msg_to_bgr
 from cn_hud import put_cn_lines
@@ -153,6 +153,9 @@ class HelipadLandingNode(Node):
         self._stop = False
         self._hud_key = None
         self._hud_bar = None
+        warmup_bpu()
+        self.get_logger().info(
+            f'H 标识别={"BPU 分类网 + 模板" if bpu_ready() else "NCC 模板（无 BPU 后端）"}')
 
         self.create_subscription(
             Image, '/camera/image_raw', self.image_callback,
@@ -167,7 +170,6 @@ class HelipadLandingNode(Node):
         self.create_subscription(
             PoseStamped, '/mavros/local_position/pose',
             self._on_pose, qos_profile_sensor_data)
-        # 速度与降落只发给 OFFBOARD 管理器
         # 速度与降落只发给 OFFBOARD 管理器
         self.velocity_pub = self.create_publisher(
             TwistStamped, '/drone/setpoint_velocity/body', 10)
@@ -256,7 +258,6 @@ class HelipadLandingNode(Node):
         vx = max(-lim, min(lim, -self.kp * error_v * lim))
         vy = max(-lim, min(lim, -self.kp * error_u * lim))
         vz = max(-lim, min(lim, -self.kp * error_z * lim))
-        # 死区：误差很小时清零对应轴，减少抖动
         # 死区：误差很小时清零对应轴，减少抖动
         if abs(error_u) < 0.06:
             vy = 0.0

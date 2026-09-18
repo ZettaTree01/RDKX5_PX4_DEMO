@@ -8,7 +8,7 @@
 
   THR_MIN        怠速
   HOVER_THRUST   悬停
-  THR_MAX        任务加速上限，约对应 MAX_MOTOR_RPM（300）
+  THR_MAX        任务加速上限，约对应 MAX_MOTOR_RPM（600）
 
 加减速时间按约 ``RAMP_SECONDS`` 秒从静止到满量程设定。
 
@@ -18,7 +18,7 @@
 
 # 总比例：0.05 = 实飞的 1/20。改 1.0 即全量实飞标称。
 INDOOR_SPEED_SCALE = 0.05
-MAX_MOTOR_RPM = 300       # 硬上限（有 ESC 遥测时还会再压速度指令）
+MAX_MOTOR_RPM = 600       # 硬上限（有 ESC 遥测时还会再压速度指令）
 RAMP_SECONDS = 2.0        # 起飞斜坡 / 加减速体感时间
 
 # ---------- 实飞标称值（scale=1.0 时使用）----------
@@ -43,11 +43,12 @@ BENCH_FOLLOW_MPS = REAL_BENCH_FOLLOW_MPS * INDOOR_SPEED_SCALE
 NAV_VEL_MPS = REAL_NAV_VEL_MPS * INDOOR_SPEED_SCALE
 
 # 油门不能简单按 scale 压到 0.003，电调根本不转。
-# 先封顶 THR_MAX≈0.025（约 300 r/min），再按实飞比例映射三段，并设下限。
-THR_MAX = 0.025
+# 先封顶 THR_MAX≈0.05（约 600 r/min），再按实飞比例映射三段，并设下限。
+# 悬停油门要明显低于上限，俯仰/横滚时混控才有余量把一侧电机加快、对侧减慢。
+THR_MAX = 0.05
 _THR_SCALE = THR_MAX / REAL_THR_MAX
-THR_MIN = max(0.012, REAL_THR_MIN * _THR_SCALE)
-HOVER_THRUST = max(0.020, REAL_HOVER_THRUST * _THR_SCALE)
+THR_MIN = max(0.015, REAL_THR_MIN * _THR_SCALE)
+HOVER_THRUST = max(0.028, REAL_HOVER_THRUST * _THR_SCALE)
 # 台架上速度太小就当没任务，改发位置悬停，电机还能听得见
 BENCH_VEL_EPS = 0.001
 MOTOR_TEST_VALUE = THR_MAX  # 01 电机测试默认输出

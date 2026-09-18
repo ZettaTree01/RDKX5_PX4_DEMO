@@ -9,7 +9,7 @@
 队形：3 机三角形，4 机菱形；偏移单位米，ENU。
 室内台架默认把队形间距压到实飞值的 1/20（见 _common/indoor.py）。
 室内无 GPS 时 launch 默认台架位姿模拟；arm:=true 后强制解锁，
-先爬升拉转速再悬停，有队形位置指令时加速，最高 300 r/min。
+先爬升拉转速再悬停，有队形位置指令时加速，最高 600 r/min。
 """
 import argparse
 import os

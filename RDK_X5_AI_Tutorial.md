@@ -406,12 +406,12 @@ python3 /app/zettatree_demo/01_uart_serial/attitude_via_usb.py --rate 20 --durat
 # 只探测 actuator_test 是否可用（不转电机）
 python3 /app/zettatree_demo/01_uart_serial/motor_test_via_usb.py --probe
 
-# 拆桨 + 固定飞机后，怠速斜坡加速约 6 秒（最高 300 r/min）
+# 拆桨 + 固定飞机后，怠速斜坡加速约 6 秒（最高 600 r/min）
 python3 /app/zettatree_demo/01_uart_serial/motor_test_via_usb.py \
     --duration 6 --i-am-sure
 ```
 
-执行结果，电机会从怠速慢慢加速，最高约 300 r/min，能看出转速变化：
+执行结果，电机会从怠速慢慢加速，最高约 600 r/min，能看出转速变化：
 
 > [!WARNING]
 >
@@ -732,7 +732,7 @@ ros2 topic echo --once /mavros/local_position/pose
 ├── 04_object_detection          # 例程4：目标检测节点
 ├── 05_obstacle_avoidance        # 例程5：摄像头识别避障（单目估距）
 ├── 06_autonomous_cruise         # 例程6：自主巡航拍照
-├── 07_target_tracking           # 例程7：停机坪 H 标对准降落
+├── 07_target_tracking           # 例程7：停机坪 H 标对准降落（BPU）
 ├── 08_depth_camera              # 例程8：GS130W Stereonet（统一 run.sh）
 ├── 09_depth_nav                 # 例程9：完整 C++ EGO-Planner + Stereonet
 ├── 10_target_follow             # 例程10：目标跟随（行人 + EGO 动态 goal）
@@ -927,10 +927,11 @@ ros2 topic hz /mavros/local_position/pose
 配套例程都在 RDK X5 的 `/app/zettatree_demo/` 下，每个目录一个例程、一份 `README.md`。
 各例程启动方式遵循同一模板，按需修改参数即可。通用约定集中在本节；后续章节仅给出差异项。
 
-> **室内调试限速**：怠速慢转、按任务加速、最高 **300 r/min**（约 2 秒从静止到最高速）。
+> **室内调试限速**：怠速慢转、按任务加速、最高 **600 r/min**（约 2 秒从静止到最高速）。
 > 速度/高度为实飞 1/20。把 `INDOOR_SPEED_SCALE` 改为 `1.0` 即恢复实飞。
+> 机体速度为 FLU（前 / 左 / 上）。台架上前飞对应机头下俯、后电机加快；左飞对应左翼下沉、右电机加快。
 
-关键常量定义见 [`_common/indoor.py`](https://github.com/ZettaTree01/RDKX5_PX4_DEMO/blob/main/_common/indoor.py)：`INDOOR_SPEED_SCALE = 0.05`（速度/高度为实飞 1/20）、最高转速 `MAX_MOTOR_RPM = 300`。
+关键常量定义见 [`_common/indoor.py`](https://github.com/ZettaTree01/RDKX5_PX4_DEMO/blob/main/_common/indoor.py)：`INDOOR_SPEED_SCALE = 0.05`（速度/高度为实飞 1/20）、最高转速 `MAX_MOTOR_RPM = 600`。
 
 **① 每个 `run.sh` 会自动加载环境，不必手动 `source`。**
 脚本内部会执行 `source /app/zettatree_demo/_common/env.sh`（优先 `/opt/tros/humble/setup.bash`，其次 `/opt/ros/humble/setup.bash`）。所以用 `bash xxx/run.sh` 启动时**不用先 source**；
@@ -1027,6 +1028,16 @@ flowchart TB
 | `/drone/control/land` | 任务→管理器 | `Bool true` 请求 `AUTO.LAND` |
 | `/drone/status/airborne` | 管理器→任务 | 达到 95% 起飞高度后为 `true` |
 
+机体速度约定为 **FLU**（前 / 左 / 上）。管理器按当前偏航转到本地 ENU 后再发给 MAVROS。台架模式下同时发布姿态设定点，让混控按俯仰、横滚拉开电机转速（必须拆桨听辨）：
+
+| 机体速度 | 姿态 | X 四旋翼电机 |
+|----------|------|----------------|
+| `+vx` 前飞 | 机头下俯 | 后电机加快、前电机减慢 |
+| `+vy` 左飞 | 左翼下沉 | 右电机加快、左电机减慢 |
+| `+vz` 上升 | 提高总距 | 四电机一起加快 |
+
+室内最高 **600 r/min**。悬停油门低于上限，混控才有余量做差速。
+
 ### MAVROS 话题与服务
 
 管理器经 MAVROS 与飞控通信。常用话题：
@@ -1037,9 +1048,9 @@ flowchart TB
 | /mavros/local_position/pose | 订阅 | 本地位置 |
 | /mavros/global_position/global | 订阅 | GPS 位置 |
 | /mavros/setpoint_position/local | 发布 | 位置控制 |
-| /mavros/setpoint_velocity/cmd_vel | 发布 | 速度控制 |
+| /mavros/setpoint_velocity/cmd_vel | 发布 | 速度控制（机体 FLU 已转到本地 ENU） |
 | /mavros/attitude | **订阅** | 飞控姿态（只读） |
-| /mavros/setpoint_attitude/attitude | 发布 | 姿态控制指令 |
+| /mavros/setpoint_raw/attitude | 发布 | 台架姿态+油门，供混控拉开俯仰/横滚差速 |
 
 常用服务：
 
@@ -1276,9 +1287,9 @@ yolo推理识别到的椅子（chair）
 估算方法：
 
 - **距离** = `fx × 类别典型高度 ÷ 检测框高（像素）`，其中 `fx = W ÷ (2·tan(hfov/2))`；
-- **方位角** = `atan((框中心 u − 图像中心) ÷ fx)`，正值为机体左侧；
+- **方位角** = `atan((框中心 u − 图像中心) ÷ fx)`，正值为机体右侧；
 - **俯仰角** = `atan((框中心 v − 图像中心) ÷ fy)`，正值为画面下方；
-- 触发时沿障碍方位反向平移，并按画面高低升降（`vx = −v·cos(yaw)`，`vy = −v·sin(yaw)`，`vz = v·sin(pitch)`）。
+- 触发时沿障碍方位反向平移，并按画面高低升降（`vx = −v·cos(yaw)`，`vy = +v·sin(yaw)`，`vz = v·sin(pitch)`）。机体 FLU：`+x` 前、`+y` 左。画面右偏障碍则向左后撤离。
 
 画面只画检测框与避障箭头；高度、阶段、距离集中在底部中文状态栏。需要避障时显示位移方向（前 / 后 / 左 / 右 / 上升 / 下降）。室内暗场先增强再送 BPU YOLO。
 
@@ -1375,10 +1386,21 @@ launch 参数 `show` 默认 `true`：飞行过程中持续输出巡航画面并�
 ### 任务说明
 
 起飞完成后悬停，**普通 USB 摄像头**（默认 `/dev/video0`，与例程 3–6 相同）识别停机坪 **H 标**，对准画面中心后请求 `AUTO.LAND`。
-H 标不在 COCO 80 类中，采用轮廓与 H 模板相关识别。画面左上角显示高度与当前阶段。本例程不用 GS130W / MIPI。
+H 标不在 COCO 80 类中。轮廓与圆在 CPU 上提出候选框，ROI 送到板端量化分类网（默认 EfficientNet-lite0，BPU）与合成 H 模板比对；无 BPU 时回退 NCC。画面左上角显示高度与当前阶段。本例程不用 GS130W / MIPI。
+
+摄像头朝下（或把打印 H 正对镜头）时，画面偏差映射为机体 FLU 速度：
+
+| 画面 | 机体速度 |
+|------|----------|
+| H 偏右 / 偏左 | 右移（`−vy`）/ 左移（`+vy`） |
+| H 偏下 / 偏上 | 后移（`−vx`）/ 前移（`+vx`） |
+| 框偏小 / 偏大 | 下降 / 上升 |
+
+对准并保持约 1 秒后请求降落；未检测到 H 或图像断流时悬停，不自动降落。
 
 > **本节目标**（`07_target_tracking`）：
 > - 完成「起飞悬停 → 识别 H → 对准 → 降落」流程；
+> - 理解轮廓提案 + BPU 分类网比对合成 H；
 > - 理解图像偏差到机体前后/左右速度的映射，以及对准保持后再切 `AUTO.LAND`；
 > - 未检测到 H 或图像断流时悬停，不自动降落；
 > - 在板端画面确认 H 框与相对位移指示。
@@ -1733,7 +1755,7 @@ RViz图
 
 思路参考 [Fast-Planner](https://github.com/SnapDragonfly/Fast-Planner) 与 [EGO-Planner](https://github.com/ZJU-FAST-Lab/ego-planner) 的动态目标接口。
 
-**OpenCV**：左=检测画面（行人框，画面干净无叠加）| 右=三维俯视（初始机头方向 = N 朝上；航迹黄线；机体→跟随点→目标橙线；行人「人」/跟随点「跟」中文标记；机体红点带净空底衬不被点云遮挡）；阶段/位移、速度/高度/目标距离、七扇区距离（红/橙/绿 = 急停/绕行/自由）、跟随点距离集中在画面**底部状态栏**分四行中文显示。YOLO 限频 5 Hz、目标短暂丢失 1 s 内记忆保持。
+**OpenCV**：左=检测画面（行人框，画面干净无叠加）| 右=三维俯视（初始机头方向 = N 朝上；航迹黄线；机体→跟随点→目标橙线；行人「人」/跟随点「跟」中文标记；机体红点带净空底衬不被点云遮挡）；阶段/位移、速度/高度/目标距离、七扇区距离（红/橙/绿 = 急停/绕行/自由）、跟随点距离集中在画面**底部状态栏**分四行中文显示。YOLO 在独立线程走 BPU（10 Hz）、目标短暂丢失 1 s 内记忆保持。
 
 **RViz**：与例程 8 相同的官方彩色点云 `/StereoNetNode/stereonet_pointcloud2`、深彩 `/StereoNetNode/stereonet_visual`，以及 EGO 规划路径 `/optimal_list`、`/drone/nav/path_plan`，行人 `/drone/follow/target`、跟随点 `/drone/follow/goal`。
 
@@ -1789,7 +1811,7 @@ bash /app/zettatree_demo/10_target_follow/run.sh arm:=true \
 #### 跟随链路与话题
 
 ```
-rectified_image(NV12) ─ YOLO person(5 Hz) ┐
+rectified_image(NV12) ─ YOLO person(BPU 10 Hz) ┐
 stereonet_depth ─ 框内中位深度 ─────────────┴→ 行人 world 系 3D
                                                     │ 减 standoff（沿连线）
                                                     ▼
@@ -1985,7 +2007,7 @@ ros2 topic echo /mavros/statustext
 
 ### BPU 优化
 
-优先用 `/app/pydev_demo` 里已量化的小模型；输入尺寸以 `.bin` 为准，不要随手改 320。多核调度看官方 `hbm_runtime` 示例，没有通用的 `--bpu-cores` 命令行。
+深度走 `DStereoV2.4_int16.bin`（BPU 连续推理）；检测走量化 YOLO `.bin`（BPU；例程 10 独立线程、10 Hz）。不要用 CPU ONNX/PyTorch 替代。输入尺寸以 `.bin` 为准。点云桥接抽稀、RViz 对 Stereonet 话题用 BEST_EFFORT，保证推理队列非满，BPU 才能持续满载。
 
 ### 通信优化
 

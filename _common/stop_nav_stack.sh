@@ -49,6 +49,10 @@ _term_then_kill '/app/zettatree_demo/_common/rviz_run.sh'
 _term_then_kill '/lib/mavros/mavros_node'
 _term_then_kill 'mavros_node'
 
+# 例程 8/9/10 的静态 TF（launch 退出后易残留，每实例约 2% CPU）
+_term_then_kill 'static_transform_publisher --frame-id map --child-frame-id world'
+_term_then_kill 'static_transform_publisher --frame-id base_link --child-frame-id camera_link'
+
 # MIPI（ensure_mipi_bpu 以 nohup 拉起，不随 launch 退出）
 _term_then_kill '/opt/tros/humble/lib/mipi_cam/mipi_cam'
 _term_then_kill 'ros2 run mipi_cam mipi_cam'
@@ -78,7 +82,9 @@ for pat in \
   'ros2 run mipi_cam mipi_cam' \
   'offboard_manager.py' \
   'gcs_heartbeat.py' \
-  'bench_pose_sim.py'
+  'bench_pose_sim.py' \
+  'static_transform_publisher --frame-id map --child-frame-id world' \
+  'static_transform_publisher --frame-id base_link --child-frame-id camera_link'
 do
   pkill -9 -f "$pat" 2>/dev/null || true
 done

@@ -179,11 +179,11 @@ class DepthPointCloudNode(Node):
             points_topic = preset['points']
             self._stereo_official = True
             self.create_subscription(
-                Image, preset['depth'], self._on_stereo_depth, _QOS_STEREO_DEPTH)
+                Image, preset['depth'], self._on_stereo_depth, qos_profile_sensor_data)
             self.create_subscription(
-                Image, visual_topic, self._on_stereo_visual, _QOS_STEREO_DEPTH)
+                Image, visual_topic, self._on_stereo_visual, qos_profile_sensor_data)
             self.create_subscription(
-                PointCloud2, points_topic, self._on_stereo_points, _QOS_STEREO_DEPTH)
+                PointCloud2, points_topic, self._on_stereo_points, qos_profile_sensor_data)
             self.create_timer(0.2, self._tick_stereo_official_wait)
             self._stereo_depth_ok = False
             self._stereo_visual_ok = False

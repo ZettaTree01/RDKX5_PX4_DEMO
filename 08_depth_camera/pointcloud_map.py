@@ -12,7 +12,7 @@ import time
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
 
@@ -101,7 +101,8 @@ class PointCloudMapNode(Node):
         self._last_pub = 0.0
         self._busy = False
         self.pub = self.create_publisher(PointCloud2, out_topic, _QOS)
-        self.create_subscription(PointCloud2, in_topic, self._on_cloud, _QOS)
+        self.create_subscription(
+            PointCloud2, in_topic, self._on_cloud, qos_profile_sensor_data)
         self.get_logger().info(
             f'体素地图 in={in_topic} out={out_topic} '
             f'voxel={self.voxel:.3f}m max={self.max_points} '

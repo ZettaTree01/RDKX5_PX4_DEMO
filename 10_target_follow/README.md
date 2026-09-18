@@ -44,7 +44,7 @@ RViz2：例程8同款（Fixed Frame=`camera_link` + 官方彩色点云）+ EGO �
 
 | 层级 | 内容 |
 |------|------|
-| 感知 | Stereonet 深度 + BPU YOLO（COCO `person`，限频 5 Hz，目标丢失 1 s 记忆保持） |
+| 感知 | Stereonet 深度 + BPU YOLO（COCO `person`，独立线程 10 Hz，目标丢失 1 s 记忆保持） |
 | 规划 | 完整 C++ EGO `flight_type=MANUAL_TARGET`（建图参数同例程 9），目标点周期发布到 `/move_base_simple/goal`，依赖例程 9 的动态目标重规划补丁 |
 | 对照 | `planner:=direct` 直接位置跟随（无需编 EGO） |
 | OpenCV | 检测画面（行人框）+ 三维俯视（航迹 + EGO 规划路径；「人」/「跟」标记）+ 底部中文状态栏 |

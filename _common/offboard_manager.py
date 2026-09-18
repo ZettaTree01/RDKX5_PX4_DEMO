@@ -415,7 +415,7 @@ class OffboardManager(Node):
         return f'{text} → {name}'
 
     def _on_esc(self, msg):
-        """记录电调最大转速，供 _rpm_scale 硬封顶 300 r/min。"""
+        """记录电调最大转速，供 _rpm_scale 硬封顶。"""
         rpms = []
         for item in getattr(msg, 'esc_telemetry', []) or []:
             r = int(getattr(item, 'rpm', 0) or 0)
@@ -482,10 +482,7 @@ class OffboardManager(Node):
     def _velocity_sp(self, body_velocity):
         """把机体 FLU 速度按当前偏航转换到 MAVROS 本地 ENU。"""
         vx, vy, vz = self._limit_body_vel(body_velocity)
-        qx, qy, qz, qw = self.pose[3:]
-        yaw = math.atan2(
-            2.0 * (qw * qz + qx * qy),
-            1.0 - 2.0 * (qy * qy + qz * qz))
+        yaw = self._yaw_enu()
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = 'map'
@@ -494,12 +491,71 @@ class OffboardManager(Node):
         msg.twist.linear.z = vz
         return msg
 
+    def _yaw_enu(self):
+        """当前局部位姿偏航（ENU）。"""
+        qx, qy, qz, qw = self.pose[3:]
+        return math.atan2(
+            2.0 * (qw * qz + qx * qy),
+            1.0 - 2.0 * (qy * qy + qz * qz))
+
+    def _quat_from_rpy(self, roll, pitch, yaw):
+        """ZYX（yaw-pitch-roll）→ 四元数，ROS ENU：+pitch 抬头，+roll 右翼下沉。"""
+        cy, sy = math.cos(yaw * 0.5), math.sin(yaw * 0.5)
+        cp, sp = math.cos(pitch * 0.5), math.sin(pitch * 0.5)
+        cr, sr = math.cos(roll * 0.5), math.sin(roll * 0.5)
+        return (
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy,
+            cr * cp * cy + sr * sp * sy,
+        )
+
+    def _attitude_from_body(self, body_velocity):
+        """机体 FLU 速度 → 姿态+油门，让混控按俯仰/横滚拉开电机转速。
+
+        四旋翼（PX4 X 机架）：
+          前飞 +vx → 负 pitch（机头下俯）→ 后电机加快、前电机减慢
+          左飞 +vy → 负 roll（左翼下沉）→ 右电机加快、左电机减慢
+          上升 +vz → 提高总距（四电机一起加快）
+        """
+        vx, vy, vz = self._limit_body_vel(body_velocity)
+        lim = max(XY_VEL_MAX, 1e-6)
+        zlim = max(Z_VEL_MAX, 1e-6)
+        max_tilt = 0.22  # 约 12.6°，台架可听出前后/左右差速
+        pitch = -max_tilt * max(-1.0, min(1.0, vx / lim))
+        roll = -max_tilt * max(-1.0, min(1.0, vy / lim))
+        yaw = self._yaw_enu() if self.pose is not None else 0.0
+        if vz >= 0.0:
+            thrust = HOVER_THRUST + (THR_MAX - HOVER_THRUST) * min(1.0, vz / zlim)
+        else:
+            thrust = HOVER_THRUST + (THR_MIN - HOVER_THRUST) * min(1.0, -vz / zlim)
+        return self._attitude_sp_quat(
+            self._quat_from_rpy(roll, pitch, yaw), thrust)
+
+    def _attitude_sp_quat(self, quat, thrust):
+        """按给定姿态四元数发布 AttitudeTarget。"""
+        msg = AttitudeTarget()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'base_link'
+        msg.type_mask = 7  # ignore roll/pitch/yaw rates
+        msg.body_rate.x = msg.body_rate.y = msg.body_rate.z = 0.0
+        msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w = quat
+        msg.thrust = float(max(0.0, min(1.0, thrust)))
+        return msg
+
+    def _publish_bench_move(self, body_velocity):
+        """台架：速度给 EKF/模拟器，姿态给混控（俯仰/横滚对应差速）。"""
+        self.velocity_pub.publish(self._velocity_sp(body_velocity))
+        if self.attitude_pub is not None:
+            self.attitude_pub.publish(self._attitude_from_body(body_velocity))
+
     def _attitude_sp(self, thrust):
         """姿态+油门设定点：OFFBOARD 预检不要求本地点/速度。"""
         msg = AttitudeTarget()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = 'base_link'
         msg.type_mask = 7  # ignore roll/pitch/yaw rates
+        msg.body_rate.x = msg.body_rate.y = msg.body_rate.z = 0.0
         if self.pose is not None:
             msg.orientation.x = self.pose[3]
             msg.orientation.y = self.pose[4]
@@ -789,8 +845,7 @@ class OffboardManager(Node):
             if self.state.mode != 'OFFBOARD':
                 self._request_mode('OFFBOARD')
             if elapsed < RAMP_SECONDS:
-                self.velocity_pub.publish(
-                    self._velocity_sp((0.0, 0.0, -float(LAND_SPEED))))
+                self._publish_bench_move((0.0, 0.0, -float(LAND_SPEED)))
             elif elapsed < RAMP_SECONDS + 1.5:
                 if self.attitude_pub is not None:
                     self.attitude_pub.publish(self._attitude_sp(THR_MIN))
@@ -936,6 +991,8 @@ class OffboardManager(Node):
             ('MPC_TKO_SPEED', float(TKO_SPEED)),
             ('MPC_JERK_AUTO', float(JERK_AUTO)),
             ('MPC_LAND_SPEED', float(LAND_SPEED)),
+            # PX4 单位是度（不是弧度），下限 20。太小则俯仰/横滚差速几乎看不出。
+            ('MPC_TILTMAX_AIR', 25.0),
         ]
         self._param_queue = arm_params + rest
         self._arm_param_names = {name for name, _v in arm_params}
@@ -1096,18 +1153,16 @@ class OffboardManager(Node):
                     self.velocity_pub.publish(
                         self._velocity_sp((0.0, 0.0, 0.0)))
                 elif not self.airborne:
-                    self.velocity_pub.publish(
-                        self._velocity_sp(self._bench_takeoff_vel()))
+                    self._publish_bench_move(self._bench_takeoff_vel())
                 else:
                     if not self._hover_captured and self.pose is not None:
                         self.hold_target = self.pose[:3]
                         self._hover_captured = True
                     body = self._active_bench_vel()
                     if body is not None:
-                        self.velocity_pub.publish(self._velocity_sp(body))
+                        self._publish_bench_move(body)
                     else:
-                        self.velocity_pub.publish(
-                            self._velocity_sp((0.0, 0.0, 0.0)))
+                        self._publish_bench_move((0.0, 0.0, 0.0))
                     if not self._logged_hover:
                         self.get_logger().info(
                             '台架悬停：保持转速，有速度/位置任务时再加速，'

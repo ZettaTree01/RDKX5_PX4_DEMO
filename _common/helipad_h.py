@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""停机坪 H 标识别（文档 4.2）。不依赖 COCO YOLO。
+"""停机坪 H 标识别（文档 4.2）。
 
-流程：缩小图像以降低 CPU 占用 → 灰度模糊 → Otsu / 霍夫圆提取候选框 →
-在候选区域内与合成 H 模板做归一化相关（正色、反色均试）→ 取最高分且过阈值者，
-坐标映射回原图。
-
-返回 ``(x1, y1, x2, y2, score)``；未检测到则返回 ``None``。score 越大越接近 H。
+提案（轮廓 / 霍夫圆）在 CPU 上做，很轻；候选 ROI 送到板端量化分类网络
+（EfficientNet-lite / MobileNet，NV12 → BPU），与合成 H 模板的特征向量比对。
+无 BPU 后端时回退归一化相关（NCC）。
 """
+import os
+from types import SimpleNamespace
+
 import cv2
 import numpy as np
 
@@ -17,6 +18,101 @@ ASPECT_MAX = 1.80
 SCORE_MIN = 0.32
 DETECT_MAX_WIDTH = 320     # 检测用缩略图宽；太大则帧率掉
 MAX_PADS = 5               # 每帧最多评估的候选区
+
+_BPU_MODELS = (
+    '/opt/hobot/model/x5/basic/efficientnet_lite0_224x224_nv12.bin',
+    '/opt/hobot/model/x5/basic/mobilenetv2_224x224_nv12.bin',
+    '/opt/hobot/model/x5/basic/mobilenetv1_224x224_nv12.bin',
+)
+
+try:
+    import hobot_dnn.pyeasy_dnn as pyeasy_dnn
+except ImportError:
+    pyeasy_dnn = None
+
+try:
+    from yolo_detector import bgr_to_nv12_planes, resized_image, resolve_input_hw
+except Exception:
+    bgr_to_nv12_planes = resized_image = resolve_input_hw = None
+
+
+class HelipadBpuScorer:
+    """把 ROI 与合成 H 送到 BPU 分类网，用特征向量余弦相似度打分。"""
+
+    def __init__(self):
+        self.model = None
+        self.input_h = 224
+        self.input_w = 224
+        self._ref = None
+        path = next((p for p in _BPU_MODELS if os.path.isfile(p)), None)
+        if path is None or pyeasy_dnn is None or resized_image is None:
+            return
+        try:
+            models = pyeasy_dnn.load(path)
+            if not models:
+                return
+            model = models[0]
+            inp = model.inputs[0]
+            self.input_h, self.input_w = resolve_input_hw(inp.properties.shape)
+            self.model = model
+            tmpl = cv2.cvtColor(h_template(self.input_h, self.input_w),
+                                cv2.COLOR_GRAY2BGR)
+            inv = cv2.cvtColor(255 - h_template(self.input_h, self.input_w),
+                               cv2.COLOR_GRAY2BGR)
+            self._ref = self._embed(tmpl)
+            self._ref_inv = self._embed(inv)
+        except Exception:
+            self.model = None
+
+    @property
+    def loaded(self):
+        """BPU 分类网是否可用。"""
+        return self.model is not None and self._ref is not None
+
+    def _nv12(self, bgr):
+        """BGR → 模型 NV12 输入。"""
+        resized = resized_image(bgr, self.input_w, self.input_h)
+        y, uv = bgr_to_nv12_planes(resized)
+        nv12 = np.concatenate((y.reshape(-1), uv.reshape(-1)), axis=0)
+        return nv12.reshape((1, self.input_h * 3 // 2, self.input_w, 1))
+
+    def _embed(self, bgr):
+        """BPU 前向，返回一维特征向量。"""
+        outs = self.model.forward(self._nv12(bgr))
+        vec = np.asarray(outs[0].buffer, dtype=np.float32).reshape(-1)
+        n = float(np.linalg.norm(vec) + 1e-6)
+        return vec / n
+
+    def score(self, bgr_roi):
+        """ROI 与合成 H（正/反色）的最大余弦相似度，映射到 0~1。"""
+        if not self.loaded or bgr_roi is None or bgr_roi.size < 16:
+            return None
+        try:
+            emb = self._embed(bgr_roi)
+        except Exception:
+            return None
+        sim = max(float(np.dot(emb, self._ref)),
+                  float(np.dot(emb, self._ref_inv)))
+        return max(0.0, min(1.0, 0.5 * (sim + 1.0)))
+
+
+_BPU = SimpleNamespace(obj=None, tried=False)
+
+
+def warmup_bpu():
+    """启动时加载 BPU 分类网，避免第一帧卡住。"""
+    if _BPU.tried:
+        return _BPU.obj
+    _BPU.tried = True
+    scorer = HelipadBpuScorer()
+    _BPU.obj = scorer if scorer.loaded else False
+    return _BPU.obj
+
+
+def bpu_ready():
+    """H 标 BPU 打分是否已就绪。"""
+    obj = warmup_bpu()
+    return bool(obj)
 
 
 def h_template(height, width, thickness=None):
@@ -155,6 +251,7 @@ def detect_h_mark(frame_bgr, score_min=SCORE_MIN):
 
     best = None
     seen = set()
+    scorer = warmup_bpu()
     for x, y, w, h in pads[:MAX_PADS]:
         key = (x // 8, y // 8, w // 8, h // 8)
         if key in seen:
@@ -163,11 +260,20 @@ def detect_h_mark(frame_bgr, score_min=SCORE_MIN):
         item = _search_in_roi(blur[y:y + h, x:x + w], x, y)
         if item is None:
             continue
+        score, x1, y1, x2, y2 = item
+        if scorer:
+            roi = small[max(0, y1):max(y1 + 1, y2), max(0, x1):max(x1 + 1, x2)]
+            bpu_s = scorer.score(roi)
+            if bpu_s is not None:
+                score = 0.4 * float(score) + 0.6 * float(bpu_s)
+        item = (score, x1, y1, x2, y2)
         if best is None or item[0] > best[0]:
             best = item
-    if best is None or best[0] < score_min:
+    if best is None:
         return None
     score, x1, y1, x2, y2 = best
+    if score < score_min:
+        return None
     inv = 1.0 / scale
     return (
         int(round(x1 * inv)), int(round(y1 * inv)),

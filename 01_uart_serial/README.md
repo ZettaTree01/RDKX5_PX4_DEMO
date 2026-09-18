@@ -69,7 +69,7 @@ python3 /app/zettatree_demo/01_uart_serial/attitude_via_usb.py --rate 20 --durat
 # 只探测可用性，不转电机
 python3 /app/zettatree_demo/01_uart_serial/motor_test_via_usb.py --probe
 
-# 拆桨后斜坡加速 6 秒（怠速 → 最高 300 r/min）
+# 拆桨后斜坡加速 6 秒（怠速 → 最高 600 r/min）
 python3 /app/zettatree_demo/01_uart_serial/motor_test_via_usb.py \
     --duration 6 --i-am-sure
 
@@ -85,22 +85,22 @@ python3 /app/zettatree_demo/01_uart_serial/motor_test_via_usb.py --iterate --i-a
 数量（四旋翼为 4），然后以 20ms 间隔连续下发各电机的 `set` 命令，实现同步启动；
 每个命令都带 `-t` 超时，到时自动停转。也可用 `--num-motors` 手动指定数量。
 
-参考（四旋翼，怠速斜坡到 300 r/min 上限）：
+参考（四旋翼，怠速斜坡到 600 r/min 上限）：
 
 ```
 静止时 PWM: 1000 1000 1000 1000
-怠速起步:   约 1003（刚转）
+怠速起步:   刚转时 PWM 略高于 1000
 加速中:     PWM 逐渐升高
-最高速:     约 1025（约 300 r/min）
+最高速:     油门顶到室内上限（约 600 r/min）
 超时后:     1000 1000 1000 1000   ← -t 超时自动停转
 ```
 
 安全约束：必须显式带 `--i-am-sure`；飞控已解锁时拒绝执行；输出值默认上限
-`MPC_THR_MAX=0.025`（对应室内最高 **300 r/min**）；命令带 `-t` 超时自动停转；
-Ctrl+C 立即发停止指令。有 DShot 遥测时若实际转速超过 300 r/min 会自动下调输出。
+`MPC_THR_MAX=0.05`（对应室内最高 **600 r/min**）；命令带 `-t` 超时自动停转；
+Ctrl+C 立即发停止指令。有 DShot 遥测时若实际转速超过 600 r/min 会自动下调输出。
 
 **关于转速**：`actuator_test` 只接受 `-1~1` 的输出值，没有直接设定 r/min 的接口；
-室内用油门硬顶 + 电调遥测回收，把最高转速限制在 300 r/min。
+室内用油门硬顶 + 电调遥测回收，把最高转速限制在 600 r/min。
 
 ## 用针脚串口跑后续例程
 

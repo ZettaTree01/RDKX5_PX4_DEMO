@@ -350,10 +350,10 @@ def generate_launch_description():
         occ_viz,
         poscmd_bridge,
         TimerAction(period=1.0, actions=[simulator]),
-        # Stereonet 与 YOLO/EGO 抢 BPU 易在启动瞬间把 inference 队列打满并 segfault
-        TimerAction(period=12.0, actions=[stereonet]),
-        TimerAction(period=16.0, actions=[ego_planner]),
-        TimerAction(period=16.2, actions=[traj_server]),
-        TimerAction(period=18.0, actions=[task]),
-        TimerAction(period=20.0, actions=[rviz_node]),
+        # 先加载 Stereonet 到 BPU，再加载 YOLO，最后开 RViz
+        TimerAction(period=1.5, actions=[stereonet]),
+        TimerAction(period=4.0, actions=[ego_planner]),
+        TimerAction(period=4.2, actions=[traj_server]),
+        TimerAction(period=8.0, actions=[task]),
+        TimerAction(period=11.0, actions=[rviz_node]),
     ])

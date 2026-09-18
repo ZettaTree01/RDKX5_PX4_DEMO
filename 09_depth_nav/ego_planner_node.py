@@ -168,7 +168,7 @@ class EgoPlannerBridge(Node):
             TwistStamped, '/drone/ego/cmd_vel', 10)
 
         self.create_subscription(
-            PointCloud2, cloud_topic, self._on_cloud, _QOS)
+            PointCloud2, cloud_topic, self._on_cloud, qos_profile_sensor_data)
         self.create_subscription(
             PoseStamped, '/mavros/local_position/pose',
             self._on_pose, qos_profile_sensor_data)
