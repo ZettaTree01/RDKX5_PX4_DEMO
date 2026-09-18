@@ -34,7 +34,7 @@ bash /app/zettatree_demo/08_depth_camera/run.sh
 | OpenCV 右 | 当前帧俯视点云（`panel_mode:=depth` 可关掉） |
 | RViz | `/StereoNetNode/stereonet_pointcloud2`，Fixed Frame=`camera_link` |
 
-OpenCV 需桌面终端（有 `DISPLAY`）。RViz 默认开启：SSH 也会自动挂到本机桌面 `:0`（以 sunrise 运行）。
+OpenCV 需桌面终端（有 `DISPLAY`）。RViz 默认开启：SSH 也会自动挂到本机桌面 `:0`（以 sunrise 运行）。若窗口闪退（板端常见：缺少 `vs-drm_dri.so`），在同网 PC 用同一 `ROS_DOMAIN_ID` 打开 `depth_cloud.rviz`。
 
 ## 目录结构
 
@@ -122,4 +122,4 @@ bash /app/zettatree_demo/08_depth_camera/run.sh \
 | 深度整体缩小上千倍 / 点云挤在机体旁 | Stereonet 参数名必须是 `base_line`、`postprocess`（V2.4 用 `v2.3`），写错会静默用 C++ 默认 |
 | 校正后画面大面积变黑 | `need_rectify` 必须 `false`：GS130W 出图已经过 GDC 校正 |
 | YOLO / 左目无图 | 订 `/StereoNetNode/rectified_image`，本机 TROS 不发 `origin_left_image` |
-| SSH 下看不到 RViz | 已自动挂到本机桌面 `:0`（以 sunrise 运行）。接 HDMI 即可看到；root 不要直接 `rviz2` |
+| SSH 下看不到 RViz | 已自动挂到本机桌面 `:0`（以 sunrise 运行）。接 HDMI 即可看到；root 不要直接 `rviz2`。若闪退，同网 PC：`rviz2 -d /app/zettatree_demo/08_depth_camera/depth_cloud.rviz` |

@@ -1494,7 +1494,7 @@ bash /app/zettatree_demo/08_depth_camera/run.sh source:=realsense
 
 #### 启动点云建模（统一入口 `run.sh`）
 
-OpenCV 需板端**桌面终端**（有 `DISPLAY`）。**RViz 默认且必须开启**：SSH 也会自动挂到本机桌面 `:0`。**只使用** `/app/zettatree_demo/08_depth_camera/run.sh`：
+OpenCV 需板端**桌面终端**（有 `DISPLAY`）。**RViz 默认且必须开启**：SSH 也会自动挂到本机桌面 `:0`。若窗口闪退（板端缺少 `vs-drm_dri.so` 时 Ogre 可能段错误），在同网 PC 用同一 `ROS_DOMAIN_ID` 打开 `08_depth_camera/depth_cloud.rviz`。**只使用** `/app/zettatree_demo/08_depth_camera/run.sh`：
 
 | 模式 | 命令 | 说明 |
 |------|------|------|
@@ -1587,7 +1587,7 @@ RViz2 配置（默认模式或 `run.sh rviz`）：
 | Stereonet 无深度话题 | 确认 combine 有 hz；模型 `DStereoV2.4_int16.bin`；本机 TROS 的 `render_type` 是整数 `0`（indoor） |
 | 左目 / YOLO 无图 | 订 `/StereoNetNode/rectified_image`，本机 TROS 不发 `origin_left_image` |
 | `mipi_cam` 退出出现 Aborted | 多为杀进程时析构问题；再跑 `bash .../run.sh` 即可（勿 `pkill -f mipi_cam` 误杀启动脚本） |
-| RViz 无点云 / 非彩色 | Fixed Frame=`camera_link`；Topic=`stereonet_pointcloud2`；Color=`RGB8`；确认默认模式或 `rviz:=true` |
+| RViz 无点云 / 非彩色 / 闪退 | Fixed Frame=`camera_link`；Topic=`stereonet_pointcloud2`；Color=`RGB8`。板端闪退时同网 PC：`rviz2 -d .../08_depth_camera/depth_cloud.rviz` |
 | 点云扇形失真 | 保持 `fx=fy`；勿按高宽比错误缩放 fy |
 | 板端卡顿 | 增大 `POINTCLOUD_DOWNSAMPLE_STEP`；RViz 用软渲染，例程 8/9/10 默认保持开启 |
 

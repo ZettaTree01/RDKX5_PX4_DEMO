@@ -90,7 +90,7 @@ bash /app/zettatree_demo/09_depth_nav/run.sh backend:=python
 | OptimalBspline / AStarList | `/optimal_list`、`/a_star_list`（规划路线，frame=`world`） |
 | PathHistory | `/drone/nav/path_history` |
 
-Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 TF 即可显示；规划 Marker 在 `world`，由 `pose_to_odom` 提供 `world→camera_link`）。SSH 启动也会把 RViz 挂到本机桌面 `:0`。
+Fixed Frame = **`camera_link`**（与例程 8 相同，官方彩色点云无需 TF 即可显示；规划 Marker 在 `world`，由 `pose_to_odom` 提供 `world→camera_link`）。SSH 启动也会把 RViz 挂到本机桌面 `:0`；若闪退请用同网 PC 打开 `ego_full.rviz`。
 **不必**为建模接入橙色点云：规划建图在后台走 `/drone/ego/cloud_world`，与 RViz 是否显示 inflate 无关。
 
 ## 参数

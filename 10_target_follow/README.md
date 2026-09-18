@@ -119,7 +119,7 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 | 检测不到行人 | 人站在镜头前 0.5–5 m、光照充足；确认订阅 `/StereoNetNode/rectified_image`（本机不发 `origin_left_image`）；可把 `min_score:=0.2` |
 | EGO 报 `the drone is in obstacle` / 无 `position_cmd` | 1) 机体前方约 1.5 m 内不要有椅子桌沿；2) 确认 `/odom_world` 在地图内（原点对齐后应接近 0,0,0）；3) 点云桥已滤 `min_depth=0.25` 与机体清空半径 |
 | 目标短暂丢失就停 | 正常：约 1 s 记忆，超时后悬停并继续搜索 |
-| HUD 无窗口 | 无 DISPLAY 时 OpenCV 写快照 `/tmp/target_follow_snapshot.jpg`。RViz 仍会显示在本机 HDMI 桌面 |
+| HUD 无窗口 | 无 DISPLAY 时 OpenCV 写快照 `/tmp/target_follow_snapshot.jpg`。RViz 会尝试显示在本机 HDMI 桌面；闪退时同网 PC 打开 `target_follow.rviz` |
 | RViz 只有橙点/无彩色点云 | Fixed Frame 应为 `camera_link`；GridMapInflate 默认已关，确认 stereonet_pointcloud2 已勾选后重跑 |
 | Ctrl+C 退不出 | 应立刻杀栈；仍挂住时另开终端：`bash /app/zettatree_demo/_common/stop_nav_stack.sh` |
 | 有点云无规划线 | 需检出到行人并下发 goal；确认 Displays 勾选 OptimalBspline / FollowLink |
