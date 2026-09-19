@@ -11,16 +11,15 @@
   /drone/control/land              请求降落
   /drone/status/airborne           本节点对外发布「已起飞」状态
 
-未指定 ``--arm`` 时为监视模式：持续发送「保持当前位置」设定点，不解锁。
-指定 ``--bench`` 表示室内拆桨台架模式：写入一组 RAM 参数，以姿态设定点进入
-OFFBOARD，再强制解锁（21196）。强制解锁仍会执行健康检查，``COM_ARM_IMU_*``
-不得设为 0。
+未指定 ``--arm`` 时为监视模式：持续发送「保持当前位置」设定点，不解锁、不切模式。
+指定 ``--bench`` 表示室内拆桨台架模式：写入一组 RAM 参数后强制解锁（21196）。
+``COM_RC_IN_MODE`` 保持飞控默认 3。仅在已解锁且需要机载自动控制时才切
+OFFBOARD；遥控器拨杆或摇杆超阈值接管后，本节点不再抢回模式。
 
 Ctrl+C 时本节点尽量请求上锁；``run.sh`` 退出时还会经串口强制上锁一次。
 
-主流程（约 20 Hz）：写参数 → 预热设定点 → OFFBOARD 解锁 → 起飞/悬停 →
-转发任务；任务超过 0.5 s 未更新则保持悬停。收到降落请求后，台架模式下下降后上锁，
-实飞则切换 AUTO.LAND。
+主流程（约 20 Hz）：写参数 → 预热设定点 → 当前模式解锁 → 需要自动时切
+OFFBOARD → 起飞/悬停 → 转发任务。遥控接管后只维持设定点流、不再 SET_MODE。
 """
 import argparse
 import math
@@ -89,6 +88,12 @@ _PX4_EVENT_NAMES = {
     1914663: 'health summary',
 }
 
+# 遥控器/摇杆接管后的飞控模式（mavros custom_mode）。出现这些即停止抢 OFFBOARD。
+_PILOT_MODES = frozenset({
+    'MANUAL', 'STABILIZED', 'ACRO', 'RATTITUDE',
+    'ALTCTL', 'POSCTL', 'POSITION', 'ALTITUDE',
+})
+
 try:
     from mavros_msgs.msg import AttitudeTarget
 except ImportError:
@@ -140,13 +145,17 @@ class OffboardManager(Node):
         self.task_velocity_body = None
         self.task_kind = None           # 'position' | 'velocity' | None
         self.task_time = None
+        self.task_pos_time = None       # 位置与速度分开计时：新鲜速度优先
+        self.task_vel_time = None
 
         # 20 Hz 节拍计数与飞行阶段
         self.connected_ticks = 0
         self.setpoint_ticks = 0         # 已连续发布设定点的 tick 数（预热用）
         self.airborne = False           # 对外：是否已完成起飞斜坡/达到高度
         self.landing = False            # 已收到降落请求，不再解锁
-        self._offboard_ticks = 0        # 连续处于 OFFBOARD 的 tick（再解锁）
+        self._offboard_ticks = 0        # 连续处于 OFFBOARD 的 tick
+        self._pilot_override = False    # 遥控器已接管，本会话不再 SET_MODE
+        self._rc_override_released = False
 
         # 模式/解锁服务限流（避免 UART 被刷爆）
         self.mode_request_pending = False
@@ -154,8 +163,8 @@ class OffboardManager(Node):
         self.last_mode_request = None
         self.last_arm_request = None
 
-        # 台架参数队列：解锁相关写完才允许 arm；油门参数可稍后
-        self.params_done = not bench
+        # 台架写完整解锁队列；只要 --arm 就要写遥控接管参数
+        self.params_done = not (bench or arm_allowed)
         self._arm_params_ready = not bench
         self._arm_ready_since = None if bench else self.get_clock().now()
         self._arm_param_names = set()
@@ -200,7 +209,7 @@ class OffboardManager(Node):
         if AttitudeTarget is not None:
             self.attitude_pub = self.create_publisher(
                 AttitudeTarget, '/mavros/setpoint_raw/attitude', 10)
-        # 假遥控：满足「有摇杆」类检查；不要为此把 COM_RC_IN_MODE 写成 4
+        # 假遥控：满足「有摇杆」类检查。COM_RC_IN_MODE 保持飞控默认 3，代码不改写。
         self.manual_pub = None
         if ManualControl is not None:
             self.manual_pub = self.create_publisher(
@@ -252,7 +261,9 @@ class OffboardManager(Node):
         self.create_timer(0.05, self._tick)          # 20 Hz 控制环
         self.create_timer(2.0, self._status_tick)    # 状态摘要日志
         if arm_allowed:
-            self.get_logger().warn('已收到 --arm：定位有效并预热完成后将自动解锁')
+            self.get_logger().warn(
+                '已收到 --arm：预热完成后按当前模式解锁；'
+                '需要自动控制时再切 OFFBOARD。拨杆或摇杆可随时接管')
         else:
             self.get_logger().info('监视模式：未传 --arm，不会切模式或解锁')
         if bench:
@@ -262,8 +273,32 @@ class OffboardManager(Node):
                 f'加速约 {ACC_HOR:.3f} m/s²')
 
     def _on_state(self, msg):
-        """缓存 /mavros/state（connected / armed / mode）。"""
+        """缓存 /mavros/state；遥控切到姿态/位置等模式后锁住，不再抢 OFFBOARD。"""
+        prev = (self.state.mode or '').upper()
         self.state = msg
+        mode = (msg.mode or '').upper()
+        if self._pilot_override:
+            return
+        if mode not in _PILOT_MODES:
+            return
+        if prev == 'OFFBOARD' or prev.startswith('AUTO'):
+            self._note_pilot_override(mode)
+
+    def _note_pilot_override(self, mode):
+        """遥控器已接管：本会话不再 SET_MODE。"""
+        if self._pilot_override:
+            return
+        self._pilot_override = True
+        self.get_logger().warn(
+            f'遥控器已接管（mode={mode}），停止切 OFFBOARD / AUTO.LAND')
+
+    def _need_offboard(self):
+        """仅在已解锁、需要机载自动控制、且遥控未接管时切 OFFBOARD。"""
+        if self._pilot_override or not self.arm_allowed:
+            return False
+        if not self.state.armed:
+            return False
+        return True
 
     def _on_pose(self, msg):
         """更新本地点；首次或台架大幅跳变时重定 home / hold。"""
@@ -292,15 +327,21 @@ class OffboardManager(Node):
         """任务节点：本地 ENU 位置目标。"""
         self.task_position = (
             msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
-        self.task_kind = 'position'
-        self.task_time = self.get_clock().now()
+        now = self.get_clock().now()
+        self.task_pos_time = now
+        self.task_time = now
+        # 例程 10 同时发跟随速度时，不要让 EGO 100 Hz 位置把速度冲掉。
+        if not self._stamp_fresh(self.task_vel_time):
+            self.task_kind = 'position'
 
     def _on_task_velocity(self, msg):
         """任务节点：机体 FLU 速度（前/左/上）。"""
         self.task_velocity_body = (
             msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z)
+        now = self.get_clock().now()
+        self.task_vel_time = now
+        self.task_time = now
         self.task_kind = 'velocity'
-        self.task_time = self.get_clock().now()
 
     def _on_land(self, msg):
         """任务节点请求降落：置位后由 _handle_landing 收尾上锁。"""
@@ -498,6 +539,17 @@ class OffboardManager(Node):
             2.0 * (qw * qz + qx * qy),
             1.0 - 2.0 * (qy * qy + qz * qz))
 
+    def _qmul(self, a, b):
+        """四元数乘法 (x,y,z,w)，Hamilton。"""
+        ax, ay, az, aw = a
+        bx, by, bz, bw = b
+        return (
+            aw * bx + ax * bw + ay * bz - az * by,
+            aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw,
+            aw * bw - ax * bx - ay * by - az * bz,
+        )
+
     def _quat_from_rpy(self, roll, pitch, yaw):
         """ZYX（yaw-pitch-roll）→ 四元数，发给 MAVROS 的 ENU/base_link 姿态。
 
@@ -521,30 +573,53 @@ class OffboardManager(Node):
           前飞 +vx → 机头下俯 → 后电机加快、前电机减慢
           左飞 +vy → 左翼下沉 → 右电机加快、左电机减慢
           上升 +vz → 提高总距（四电机一起加快）
+
+        无水平速度时（例程 2 起飞/悬停）只发总距并忽略姿态（type_mask 含
+        IGNORE_ATTITUDE）。台架上若仍发姿态设定点，ENU↔NED 往返或 IMU 偏差
+        会变成大幅度抬头，前电机一直快于后电机。
         """
         vx, vy, vz = self._limit_body_vel(body_velocity)
         lim = max(XY_VEL_MAX, 1e-6)
         zlim = max(Z_VEL_MAX, 1e-6)
-        max_tilt = 0.22  # 约 12.6°，台架可听出前后/左右差速
-        # 正 pitch 经 MAVROS 后为 PX4 负俯仰（机头下俯）；负 roll 为左翼下沉。
-        pitch = max_tilt * max(-1.0, min(1.0, vx / lim))
-        roll = -max_tilt * max(-1.0, min(1.0, vy / lim))
-        yaw = self._yaw_enu() if self.pose is not None else 0.0
         if vz >= 0.0:
             thrust = HOVER_THRUST + (THR_MAX - HOVER_THRUST) * min(1.0, vz / zlim)
         else:
             thrust = HOVER_THRUST + (THR_MIN - HOVER_THRUST) * min(1.0, -vz / zlim)
-        return self._attitude_sp_quat(
-            self._quat_from_rpy(roll, pitch, yaw), thrust)
+        # 仅爬升/悬停/下降：不要姿态差速
+        if abs(vx) + abs(vy) < BENCH_VEL_EPS:
+            return self._attitude_sp_quat(None, thrust, ignore_attitude=True)
+        max_tilt = 0.22  # 约 12.6°，台架可听出前后/左右差速
+        # 正 pitch 经 MAVROS 后为 PX4 负俯仰（机头下俯）；负 roll 为左翼下沉。
+        pitch = max_tilt * max(-1.0, min(1.0, vx / lim))
+        roll = -max_tilt * max(-1.0, min(1.0, vy / lim))
+        tilt = self._quat_from_rpy(roll, pitch, 0.0)
+        if self.pose is not None:
+            quat = self._qmul(tuple(self.pose[3:]), tilt)
+        else:
+            quat = tilt
+        return self._attitude_sp_quat(quat, thrust, ignore_attitude=False)
 
-    def _attitude_sp_quat(self, quat, thrust):
-        """按给定姿态四元数发布 AttitudeTarget。"""
+    def _attitude_sp_quat(self, quat, thrust, ignore_attitude=False):
+        """按给定姿态四元数发布 AttitudeTarget。
+
+        ignore_attitude=True 时只控制总距（四电机同速），用于起飞/悬停。
+        """
         msg = AttitudeTarget()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = 'base_link'
-        msg.type_mask = 7  # ignore roll/pitch/yaw rates
+        # 7 = 忽略三轴角速率；128 = IGNORE_ATTITUDE（忽略姿态四元数）
+        msg.type_mask = (7 | 128) if ignore_attitude else 7
         msg.body_rate.x = msg.body_rate.y = msg.body_rate.z = 0.0
-        msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w = quat
+        if quat is not None:
+            (msg.orientation.x, msg.orientation.y,
+             msg.orientation.z, msg.orientation.w) = quat
+        elif self.pose is not None:
+            msg.orientation.x = self.pose[3]
+            msg.orientation.y = self.pose[4]
+            msg.orientation.z = self.pose[5]
+            msg.orientation.w = self.pose[6]
+        else:
+            msg.orientation.w = 1.0
         msg.thrust = float(max(0.0, min(1.0, thrust)))
         return msg
 
@@ -571,26 +646,16 @@ class OffboardManager(Node):
         msg.thrust = float(max(0.0, min(1.0, thrust)))
         return msg
 
-    def _publish_rc_keepalive(self):
-        """注入中位摇杆，满足「有遥控输入」预检（不依赖真实遥控器）。
-
-        mavros send_cb 把 float 原样写入 MANUAL_CONTROL（单位约 -1000..1000），
-        不会再乘 1000；z=500 为油门中位。另发 RC override 作双保险。
-        """
-        if self.manual_pub is not None:
-            msg = ManualControl()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.x = 0.0
-            msg.y = 0.0
-            msg.z = 500.0
-            msg.r = 0.0
-            msg.buttons = 0
-            self.manual_pub.publish(msg)
-        if self.rc_override_pub is not None:
-            ov = OverrideRCIn()
-            ch = [1500] * 8 + [OverrideRCIn.CHAN_RELEASE] * 10
-            ov.channels = ch
-            self.rc_override_pub.publish(ov)
+    def _release_rc_override(self):
+        """释放 mavros RC override，避免中位覆盖真遥控通道。"""
+        if self._rc_override_released or self.rc_override_pub is None:
+            return
+        ov = OverrideRCIn()
+        nchan = 18
+        release = int(getattr(OverrideRCIn, 'CHAN_RELEASE', 0))
+        ov.channels = [release] * nchan
+        self.rc_override_pub.publish(ov)
+        self._rc_override_released = True
 
     def _on_gp_origin(self, msg):
         if not self._gp_origin_ok:
@@ -698,11 +763,16 @@ class OffboardManager(Node):
         except Exception as exc:
             self.get_logger().warn(f'DO_SET_HOME 调用失败: {exc}')
 
-    def _task_is_fresh(self):
-        """任务输入是否在 0.5 s 内更新过；过期则改悬停。"""
-        if self.task_time is None:
+    def _stamp_fresh(self, stamp):
+        """时间戳是否在 0.5 s 内。"""
+        if stamp is None:
             return False
-        return (self.get_clock().now() - self.task_time).nanoseconds < 500_000_000
+        return (self.get_clock().now() - stamp).nanoseconds < 500_000_000
+
+    def _task_is_fresh(self):
+        """位置或速度任务是否在 0.5 s 内更新过；过期则改悬停。"""
+        return self._stamp_fresh(self.task_vel_time) or self._stamp_fresh(
+            self.task_pos_time) or self._stamp_fresh(self.task_time)
 
     def _vel_nonzero(self, body_velocity):
         """台架：速度幅值是否超过 ``BENCH_VEL_EPS``（否则当悬停）。"""
@@ -734,14 +804,18 @@ class OffboardManager(Node):
         return (0.0, 0.0, float(vz))
 
     def _active_bench_vel(self):
-        """有明显速度/未到点的位置任务才回速度，否则 None → 位置悬停保转速。"""
-        if not self._task_is_fresh():
-            return None
-        if self.task_kind == 'velocity' and self.task_velocity_body is not None:
+        """有明显速度/未到点的位置任务才回速度，否则 None → 位置悬停保转速。
+
+        速度与位置同时到达时用速度（例程 10 HUD 前/后与混控一致；
+        EGO 位置只作规划可视化）。
+        """
+        if self._stamp_fresh(self.task_vel_time) and self.task_velocity_body is not None:
+            self.task_kind = 'velocity'
             if self._vel_nonzero(self.task_velocity_body):
                 return self.task_velocity_body
             return None
-        if self.task_kind == 'position' and self.task_position is not None:
+        if self._stamp_fresh(self.task_pos_time) and self.task_position is not None:
+            self.task_kind = 'position'
             body = self._vel_toward_position(self.task_position)
             if self._vel_nonzero(body):
                 return body
@@ -750,7 +824,9 @@ class OffboardManager(Node):
         return None
 
     def _request_mode(self, mode):
-        """切 PX4 模式；同一时刻只挂一个请求，且至少间隔 1 s。"""
+        """切 PX4 模式；遥控接管后拒绝再切；同一时刻只挂一个请求，且至少间隔 1 s。"""
+        if self._pilot_override:
+            return
         if self.mode_request_pending or not self.mode_cli.service_is_ready():
             return
         now = self.get_clock().now()
@@ -843,6 +919,11 @@ class OffboardManager(Node):
             if not self._logged_land_done:
                 self.get_logger().warn('已上锁，降落完成，电机应已停转')
                 self._logged_land_done = True
+            return
+        if self._pilot_override:
+            self.get_logger().warn(
+                '遥控器已接管，计算机不再切模式降落',
+                throttle_duration_sec=5.0)
             return
         elapsed = (now - self._land_t0).nanoseconds * 1e-9
         if self.bench:
@@ -942,17 +1023,28 @@ class OffboardManager(Node):
         """组装台架参数队列：先解锁相关，再 MPC 油门/速度（可稍后失败跳过）。
 
         int → INTEGER，float → DOUBLE。机载端 21196 仍会跑预检，故必须先写：
-        无 GPS、关磁、放宽 IMU 一致性、外部视觉；勿写 COM_RC_IN_MODE=4；
+        无 GPS、关磁、放宽 IMU 一致性、外部视觉。
+        勿改写 COM_RC_IN_MODE（保持 PX4 默认 3=RC or Joystick with fallback）。
+        COM_RC_OVERRIDE=3：自动/OFFBOARD 下摇杆超阈值立刻回到位置模式。
+        COM_RCL_EXCEPT=0：遥控丢失必须进 failsafe，OFFBOARD 不例外。
         勿把 COM_ARM_IMU_* 写成 0（阈值 0=任何不一致都拒解锁）。
         CBRK_IO_SAFETY 运行时写入后仍须按安全开关（或保存参数后重启飞控）。
         """
+        rc_takeover = [
+            ('COM_RCL_EXCEPT', 0),
+            ('COM_RC_OVERRIDE', 3),
+        ]
+        if not self.bench:
+            self._param_queue = list(rc_takeover)
+            self._arm_param_names = set()
+            self.get_logger().info(
+                '已排队遥控接管参数：COM_RC_OVERRIDE=3，COM_RCL_EXCEPT=0')
+            return
         arm_params = [
-            # 最先写：MAVLink 摇杆（假遥控）；新固件 1=MAVLink only；勿用 4
-            ('COM_RC_IN_MODE', 1),
             ('COM_ARM_WO_GPS', 1),
             ('CBRK_IO_SAFETY', 22027),
             ('COM_PREARM_MODE', 2),
-            ('COM_RCL_EXCEPT', 4),
+            *rc_takeover,
             # 台架常见拒解锁：无任务 / 无 GCS / 多 IMU 投票；尽量关掉硬依赖
             ('COM_ARM_MIS_REQ', 0),
             ('NAV_DLL_ACT', 0),
@@ -1142,8 +1234,7 @@ class OffboardManager(Node):
             if self.landing:
                 self._handle_landing()
             elif self.bench:
-                # 解锁前：姿态设定点满足 OFFBOARD 信号；假遥控满足摇杆预检。
-                # 不要依赖 COM_RC_IN_MODE=4（会把「无遥控」变成硬失败）。
+                # 解锁前只发设定点预热，不覆盖真遥控。COM_RC_IN_MODE 保持默认 3。
                 offboard = self.state.mode == 'OFFBOARD'
                 if offboard:
                     self._offboard_ticks += 1
@@ -1152,7 +1243,7 @@ class OffboardManager(Node):
                 if not self.state.armed or not offboard:
                     self._fix_mavros_thrust_scaling()
                     self._ensure_px4_home()
-                    self._publish_rc_keepalive()
+                    self._release_rc_override()
                     # mavros setpoint_raw 在 thrust_scaling=NaN 时会丢弃非零 thrust，
                     # 导致飞控报 No offboard signal。预热一律用速度设定点。
                     self.velocity_pub.publish(
@@ -1175,13 +1266,16 @@ class OffboardManager(Node):
                         self._logged_hover = True
                 self.setpoint_ticks += 1
             elif self.airborne and self._task_is_fresh():
-                if self.task_kind == 'velocity':
+                if (self._stamp_fresh(self.task_vel_time)
+                        and self.task_velocity_body is not None):
+                    self.task_kind = 'velocity'
                     self.velocity_pub.publish(
                         self._velocity_sp(self.task_velocity_body))
                     if not self._logged_ignore_vel:
                         self.get_logger().info('已起飞，开始转发避障速度')
                         self._logged_ignore_vel = True
-                else:
+                elif self.task_position is not None:
+                    self.task_kind = 'position'
                     self.position_pub.publish(
                         self._position_sp(self.task_position))
                 self.setpoint_ticks += 1
@@ -1210,7 +1304,8 @@ class OffboardManager(Node):
             self.connected_ticks = 0
             return
         self.connected_ticks += 1
-        if self.bench and not self.params_done:
+        self._release_rc_override()
+        if not self.params_done:
             if (self.param_pending and self._param_sent_time is not None
                     and (self.get_clock().now()
                          - self._param_sent_time).nanoseconds > 2_500_000_000):
@@ -1226,6 +1321,8 @@ class OffboardManager(Node):
                     '室内常见 Heading/Accel Bias——已写 EKF2_MAG_TYPE=5、'
                     'EKF2_ABL_LIM=2.0；若仍拒绝请按安全开关后重试')
         if not self.arm_allowed:
+            return
+        if self._pilot_override:
             return
         if self.pose is None or self.setpoint_ticks < 40:
             self.get_logger().info(
@@ -1244,20 +1341,11 @@ class OffboardManager(Node):
                 '解锁参数已写入，等待 EKF 刷新偏航/home/原点（约 10s）',
                 throttle_duration_sec=2.0)
             return
-        # 台架：姿态设定点 + 假遥控 → OFFBOARD 稳定后再强制解锁。
+        # 保持当前遥控模式解锁；需要自动控制且遥控未接管时再切 OFFBOARD。
         if not self.state.armed:
-            if self.state.mode != 'OFFBOARD':
-                self._request_mode('OFFBOARD')
-                return
-            if self.bench and self._offboard_ticks < 40:
-                self.get_logger().info(
-                    '已进入 OFFBOARD，等待设定点被飞控接受后再解锁',
-                    throttle_duration_sec=2.0)
-                return
-            # home 未确认也继续尝试解锁（同时 _ensure_px4_home 每 2s 重试）
             self._request_arm()
             return
-        if self.state.mode != 'OFFBOARD':
+        if self._need_offboard() and self.state.mode != 'OFFBOARD':
             self._request_mode('OFFBOARD')
 
     def _status_tick(self):
@@ -1272,7 +1360,8 @@ class OffboardManager(Node):
             f'z={pose_z} z_rel={z_rel} params_done={self.params_done} '
             f'param_pending={pending} sp_ticks={self.setpoint_ticks} '
             f'esc_rpm={self._esc_max_rpm} task={self.task_kind} '
-            f'bench_takeoff={self._arm_t0 is not None}')
+            f'bench_takeoff={self._arm_t0 is not None} '
+            f'rc_takeover={self._pilot_override}')
 
 
 def main(args=None):
@@ -1281,7 +1370,8 @@ def main(args=None):
     parser.add_argument(
         '--altitude', type=float, default=TAKEOFF_ALT_M,
         help=f'起飞高度（米），室内台架默认 {TAKEOFF_ALT_M}（实飞 2 m 的 1/20）')
-    parser.add_argument('--arm', action='store_true', help='允许切 OFFBOARD 并解锁')
+    parser.add_argument('--arm', action='store_true',
+                        help='允许解锁；需要自动控制时再切 OFFBOARD')
     parser.add_argument('--no-arm', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--bench', action='store_true',
                         help='室内台架：写外部视觉参数并降低悬停油门')

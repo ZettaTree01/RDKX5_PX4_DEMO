@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""向 mavros GCS 桥发送 MAVLink GCS HEARTBEAT + MANUAL_CONTROL。
+"""向 mavros GCS 桥发送 MAVLink GCS HEARTBEAT。
 
 配合 launch 里 gcs_url:=udp://0.0.0.0:14550@：本脚本连 127.0.0.1:14550，
 经 mavros 转发到飞控。
 
 - HEARTBEAT：消「No GCS datalink」(6801787)
-- MANUAL_CONTROL：消「No manual control input」(453929)，配合 COM_RC_IN_MODE=1
+- 默认不发 MANUAL_CONTROL，避免中位摇杆盖住真遥控
 """
 import argparse
 import time
@@ -19,8 +19,8 @@ def main():
     ap.add_argument('--port', type=int, default=14550)
     ap.add_argument('--rate', type=float, default=1.0,
                     help='GCS HEARTBEAT 频率 Hz')
-    ap.add_argument('--manual-rate', type=float, default=10.0,
-                    help='MANUAL_CONTROL 频率 Hz（摇杆保活）')
+    ap.add_argument('--manual-rate', type=float, default=0.0,
+                    help='MANUAL_CONTROL 频率 Hz；0=不发（默认，避免抢真遥控）')
     ap.add_argument('--sysid', type=int, default=255)
     ap.add_argument('--target-system', type=int, default=1)
     args = ap.parse_args()
@@ -31,7 +31,7 @@ def main():
         source_component=190,
     )
     hb_period = 1.0 / max(args.rate, 0.1)
-    man_period = 1.0 / max(args.manual_rate, 1.0)
+    man_period = (1.0 / args.manual_rate) if args.manual_rate > 0 else None
     next_hb = time.monotonic()
     next_man = time.monotonic()
     print(
@@ -49,8 +49,8 @@ def main():
                 mavutil.mavlink.MAV_STATE_ACTIVE,
             )
             next_hb = now + hb_period
-        if now >= next_man:
-            # x/y/r: -1000..1000；z 油门 0..1000，500=中位
+        if man_period is not None and now >= next_man:
+            # 仅在显式 --manual-rate>0 时发送；会与真遥控抢输入
             conn.mav.manual_control_send(
                 args.target_system,
                 0, 0, 500, 0, 0,
