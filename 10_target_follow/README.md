@@ -117,7 +117,8 @@ EGO-Planner 的拉取/打补丁/编译全部**复用例程 09 的 `setup_full_eg
 | 现象 | 处理 |
 |------|------|
 | `ego_planner` 包不可用 | `bash setup.sh` |
-| 检测不到行人 | 人站在镜头前 0.5–5 m、光照充足；确认订阅 `/StereoNetNode/rectified_image`（本机不发 `origin_left_image`）；可把 `min_score:=0.2` |
+| 检测不到行人 | 人站在镜头前约 **1.5–5 m**（大于 `standoff` 0.8 m 才能听出前飞：机头下俯、后电机加快）；确认订阅 `/StereoNetNode/rectified_image`；可把 `min_score:=0.2` |
+| 人很近仍抬头、前电机快 | 已改为：人在前方时不后撤、不把行人当障碍。须重新启动例程 10 加载新节点 |
 | EGO 报 `the drone is in obstacle` / 无 `position_cmd` | 1) 机体前方约 1.5 m 内不要有椅子桌沿；2) 确认 `/odom_world` 在地图内（原点对齐后应接近 0,0,0）；3) 点云桥已滤 `min_depth=0.25` 与机体清空半径 |
 | 目标短暂丢失就停 | 正常：约 1 s 记忆，超时后悬停并继续搜索 |
 | HUD 无窗口 | 无 DISPLAY 时 OpenCV 写快照 `/tmp/target_follow_snapshot.jpg`。RViz2 显示在本机 HDMI；同网开发机可打开 `target_follow.rviz` |

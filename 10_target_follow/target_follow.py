@@ -484,18 +484,31 @@ class TargetFollowNode(Node):
         # 检测失败/深度无效：目标记忆短暂保持
         return fresh
 
+    def _person_along(self) -> float | None:
+        """行人相对机体沿机头的水平距离（米）；前方为正。"""
+        if self.target_w is None or self.pose is None:
+            return None
+        ux, uy = math.cos(self.yaw), math.sin(self.yaw)
+        return ((self.target_w[0] - self.pose[0]) * ux
+                + (self.target_w[1] - self.pose[1]) * uy)
+
     def _compute_follow_goal(self):
         """跟随点：沿当前机头方向退 standoff，使人落在相机正前方。
 
         相机固定朝前，台架也不改航向。若沿「机–人连线」回退，人会一直停在
         画面一侧。改为与行人同侧平移、机头方向保持距离，偏右则右移、偏左则左移。
+        人在前方且近于 standoff 时，跟点不落到机后，避免抬头后撤。
         """
         if self.target_w is None or self.pose is None:
             return None
         tx, ty, tz = self.target_w
         ux, uy = math.cos(self.yaw), math.sin(self.yaw)
-        gx = tx - ux * self.standoff
-        gy = ty - uy * self.standoff
+        along = self._person_along()
+        back = self.standoff
+        if along is not None and along > 0.0:
+            back = min(self.standoff, along)
+        gx = tx - ux * back
+        gy = ty - uy * back
         # 跟随点转到 EGO 世界系（减 origin），与 /odom_world 同系
         if self.follow_z > 0:
             gz = self.follow_z
@@ -523,12 +536,32 @@ class TargetFollowNode(Node):
             self._avoid_msg = msg
             self._avoid_vel = (vx, vy, vz)
 
+    def _target_is_front_obstacle(self) -> bool:
+        """前方自由距离接近行人距离时，把行人当跟随目标而不是障碍。"""
+        if self.target_w is None or self.pose is None or self.clearance is None:
+            return False
+        front = self.clearance.front
+        if front is None:
+            return False
+        td = math.hypot(
+            self.target_w[0] - self.pose[0],
+            self.target_w[1] - self.pose[1])
+        return abs(front - td) < max(0.45, 0.5 * self.standoff)
+
     def _apply_safety_override(self) -> bool:
-        """过近时用机体速度覆盖 EGO/直跟（与例程 9 安全层一致）。"""
+        """过近时用机体速度覆盖 EGO/直跟（与例程 9 安全层一致）。
+
+        被跟随的人就在前方时不后撤：否则台架上会抬头、前电机加快。
+        """
         if (self.depth_m is None or self.planner == 'direct'
                 or not self._avoid_msg or self._avoid_vel is None):
             return False
+        if self._target_is_front_obstacle():
+            return False
         vx, vy, vz = self._avoid_vel
+        along = self._person_along()
+        if along is not None and along > 0.0 and vx < 0.0:
+            vx = 0.0
         self._publish_vel(vx, vy, vz)
         self.phase = f'安全层 {self._avoid_msg} | {self.planner}'
         return True
@@ -677,8 +710,7 @@ class TargetFollowNode(Node):
         has_tgt = self._update_target_from_vision()
         if not has_tgt:
             self.phase = '搜索行人…'
-            self.move_label = '悬停'
-            self.cmd = (0.0, 0.0, 0.0)
+            self._publish_vel(0.0, 0.0, 0.0)
             return
 
         if self._apply_safety_override():
@@ -686,12 +718,13 @@ class TargetFollowNode(Node):
 
         goal = self._compute_follow_goal()
         if goal is None:
+            self._publish_vel(0.0, 0.0, 0.0)
             return
         self.goal_w = goal
         if self._should_republish_goal(goal):
             self._publish_goal(goal)
 
-        # 位移 HUD：机体 FLU 朝跟随点的方向（goal 已是 EGO 系）
+        # 机体 FLU 朝跟随点；同时发给管理器，台架混控与 HUD 前/后一致。
         body = self._ego_xyz(self.pose)
         dx = goal[0] - body[0]
         dy = goal[1] - body[1]
@@ -699,17 +732,25 @@ class TargetFollowNode(Node):
         c, s = math.cos(self.yaw), math.sin(self.yaw)
         vx_b = c * dx + s * dy
         vy_b = -s * dx + c * dy
-        self.cmd = (vx_b, vy_b, 0.0)
+        along = self._person_along()
+        if along is not None and along > 0.0 and vx_b < 0.0:
+            vx_b = 0.0
+        speed = math.hypot(vx_b, vy_b)
+        if speed > self.max_vel > 0.0:
+            vx_b *= self.max_vel / speed
+            vy_b *= self.max_vel / speed
+        self._publish_vel(vx_b, vy_b, 0.0)
         dirs = []
-        eps = max(0.03, 0.15 * self.standoff)
-        if dist > eps:
-            if vx_b > eps:
+        veps = max(1e-4, 0.15 * abs(self.max_vel))
+        reach = max(0.03, 0.15 * self.standoff)
+        if dist > reach:
+            if vx_b > veps:
                 dirs.append('前')
-            elif vx_b < -eps:
+            elif vx_b < -veps:
                 dirs.append('后')
-            if vy_b > eps:
+            if vy_b > veps:
                 dirs.append('左')
-            elif vy_b < -eps:
+            elif vy_b < -veps:
                 dirs.append('右')
         self.move_label = '、'.join(dirs) if dirs else '保持'
         td = math.hypot(
